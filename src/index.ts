@@ -1,1 +1,1 @@
-export const myPackage = (taco = ''): string => `${taco} from my package`;
+export { Database, type Entry } from './database'

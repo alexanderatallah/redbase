@@ -1,59 +1,21 @@
-# typescript-npm-package-template
+# Redis database
 
-> Template to kickstart creating a Node.js module using TypeScript and VSCode
+A simple, fast, type-safe database on top of Redis.
 
-Inspired by [node-module-boilerplate](https://github.com/sindresorhus/node-module-boilerplate)
+### Key features
 
-## Features
+- Hierarchical indexes (useful for tagging cached data)
+- Objects of arbitrary size can be used as keys
+- Zero npm dependencies (works with `redis`, `node-redis` and `ioredis`)
+- Only core Redis - no dependencies on Redis modules (useful for deploying on platforms like Upstash).
 
-- [Semantic Release](https://github.com/semantic-release/semantic-release)
-- [Issue Templates](https://github.com/alexanderatallah/typescript-npm-package-template/tree/main/.github/ISSUE_TEMPLATE)
-- [GitHub Actions](https://github.com/alexanderatallah/typescript-npm-package-template/tree/main/.github/workflows)
-- [Codecov](https://about.codecov.io/)
-- [VSCode Launch Configurations](https://github.com/alexanderatallah/typescript-npm-package-template/blob/main/.vscode/launch.json)
-- [TypeScript](https://www.typescriptlang.org/)
-- [Husky](https://github.com/typicode/husky)
-- [Lint Staged](https://github.com/okonet/lint-staged)
-- [Commitizen](https://github.com/search?q=commitizen)
-- [Jest](https://jestjs.io/)
-- [ESLint](https://eslint.org/)
-- [Prettier](https://prettier.io/)
+### Use cases
 
-## Getting started
+Can work as a type-safe cache that you need to be able to browse for discrepancies or query in a light-weight way. Some examples:
 
-### Set up your repository
+1. Cache prompts and completions from large language models to avoid paying for duplicate computation. Tag them with hierarchical tags like `"user1/project1"` and then easily create an endpoint to browse both `user1`'s content across all projects and just their content for `project1`.
 
-**Click the "Use this template" button.**
-
-Alternatively, create a new directory and then run:
-
-```bash
-curl -fsSL https://github.com/alexanderatallah/typescript-npm-package-template/archive/main.tar.gz | tar -xz --strip-components=1
-```
-
-Replace `FULL_NAME`, `GITHUB_USER`, and `REPO_NAME` in the script below with your own details to personalize your new package:
-
-```bash
-FULL_NAME="Alex Atallah"
-GITHUB_USER="alexanderatallah"
-REPO_NAME="my-cool-package"
-sed -i.mybak "s/\([\/\"]\)(alexanderatallah)/$GITHUB_USER/g; s/typescript-npm-package-template\|my-package-name/$REPO_NAME/g; s/Alex Atallah/$FULL_NAME/g" package.json package-lock.json README.md
-rm *.mybak
-```
-
-### Add NPM Token
-
-Add your npm token to your GitHub repository secrets as `NPM_TOKEN`.
-
-### Add Codecov integration
-
-Enable the Codecov GitHub App [here](https://github.com/apps/codecov).
-
-**Remove everything from here and above**
-
----
-
-# my-package-name
+2. TODO!
 
 [![npm package][npm-img]][npm-url]
 [![Build Status][build-img]][build-url]
@@ -63,18 +25,16 @@ Enable the Codecov GitHub App [here](https://github.com/apps/codecov).
 [![Commitizen Friendly][commitizen-img]][commitizen-url]
 [![Semantic Release][semantic-release-img]][semantic-release-url]
 
-> My awesome module
-
 ## Install
 
 ```bash
-npm install my-package-name
+npm install redis-database
 ```
 
 ## Usage
 
 ```ts
-import { myPackage } from 'my-package-name';
+import { myPackage } from 'redis-database';
 
 myPackage('hello');
 //=> 'hello from my package'

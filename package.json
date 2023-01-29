@@ -1,7 +1,7 @@
 {
-  "name": "typescript-npm-package-template",
+  "name": "redis-database",
   "version": "0.0.0-development",
-  "description": "A template for creating npm packages using TypeScript and VSCode",
+  "description": "A simple, fast, type-safe database on top of Redis.",
   "main": "./lib/index.js",
   "files": [
     "lib/**/*"
@@ -19,7 +19,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/alexanderatallah/typescript-npm-package-template.git"
+    "url": "git+https://github.com/alexanderatallah/redis-database.git"
   },
   "license": "MIT",
   "author": {
@@ -42,9 +42,9 @@
     "codecov"
   ],
   "bugs": {
-    "url": "https://github.com/alexanderatallah/typescript-npm-package-template/issues"
+    "url": "https://github.com/alexanderatallah/redis-database/issues"
   },
-  "homepage": "https://github.com/alexanderatallah/typescript-npm-package-template#readme",
+  "homepage": "https://github.com/alexanderatallah/redis-database#readme",
   "devDependencies": {
     "@ryansonshine/commitizen": "^4.2.8",
     "@ryansonshine/cz-conventional-changelog": "^3.3.4",
@@ -118,5 +118,8 @@
       "@semantic-release/npm",
       "@semantic-release/github"
     ]
+  },
+  "dependencies": {
+    "ioredis": "^5.3.0"
   }
 }

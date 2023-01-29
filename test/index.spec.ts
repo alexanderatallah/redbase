@@ -1,4 +1,4 @@
-import { myPackage } from '../src';
+import { Database } from '../src';
 
 describe('index', () => {
   describe('myPackage', () => {
