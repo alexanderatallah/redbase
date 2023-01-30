@@ -100,16 +100,16 @@ Default: `rainbows`
 
 Lorem ipsum.
 
-[build-img]: https://github.com/alexanderatallah/typescript-npm-package-template/actions/workflows/release.yml/badge.svg
-[build-url]: https://github.com/alexanderatallah/typescript-npm-package-template/actions/workflows/release.yml
-[downloads-img]: https://img.shields.io/npm/dt/typescript-npm-package-template
-[downloads-url]: https://www.npmtrends.com/typescript-npm-package-template
-[npm-img]: https://img.shields.io/npm/v/typescript-npm-package-template
-[npm-url]: https://www.npmjs.com/package/typescript-npm-package-template
-[issues-img]: https://img.shields.io/github/issues/alexanderatallah/typescript-npm-package-template
-[issues-url]: https://github.com/alexanderatallah/typescript-npm-package-template/issues
-[codecov-img]: https://codecov.io/gh/alexanderatallah/typescript-npm-package-template/branch/main/graph/badge.svg
-[codecov-url]: https://codecov.io/gh/alexanderatallah/typescript-npm-package-template
+[build-img]: https://github.com/alexanderatallah/redis-database/actions/workflows/release.yml/badge.svg
+[build-url]: https://github.com/alexanderatallah/redis-database/actions/workflows/release.yml
+[downloads-img]: https://img.shields.io/npm/dt/redis-database
+[downloads-url]: https://www.npmtrends.com/redis-database
+[npm-img]: https://img.shields.io/npm/v/redis-database
+[npm-url]: https://www.npmjs.com/package/redis-database
+[issues-img]: https://img.shields.io/github/issues/alexanderatallah/redis-database
+[issues-url]: https://github.com/alexanderatallah/redis-database/issues
+[codecov-img]: https://codecov.io/gh/alexanderatallah/redis-database/branch/main/graph/badge.svg
+[codecov-url]: https://codecov.io/gh/alexanderatallah/redis-database
 [semantic-release-img]: https://img.shields.io/badge/%20%20%F0%9F%93%A6%F0%9F%9A%80-semantic--release-e10079.svg
 [semantic-release-url]: https://github.com/semantic-release/semantic-release
 [commitizen-img]: https://img.shields.io/badge/commitizen-friendly-brightgreen.svg
