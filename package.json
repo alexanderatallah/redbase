@@ -12,7 +12,7 @@
     "cm": "cz",
     "lint": "eslint ./src/ --fix",
     "prepare": "husky install",
-    "benchmark": "hyperfine --warmup 1 --runs 5 'ts-node ./benchmark/redis.ts' 'ts-node ./benchmark/postgres.ts'",
+    "benchmark": "bash ./benchmark/run.sh",
     "semantic-release": "semantic-release",
     "test:watch": "jest --watch",
     "test": "jest --coverage --detectOpenHandles",

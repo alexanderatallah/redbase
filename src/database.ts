@@ -154,6 +154,15 @@ class Database<ValueT> {
     return redis.zrange(redisKey, offset, offset + limit)
   }
 
+  async count(
+    indexPath?: string | undefined,
+    min: number | '-inf' = '-inf',
+    max: number | '+inf' = '+inf'
+  ): Promise<number> {
+    const index = this._getIndexHierarchy(indexPath || '')
+    return redis.zcount(this._indexKey(index), min, max)
+  }
+
   async del(id: string): Promise<ExecT> {
     const indexKey = this._indexesForEntryKey(id)
     if (DEBUG) {

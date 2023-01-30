@@ -60,7 +60,7 @@ describe('Database', () => {
     })
   })
 
-  describe('query entries', () => {
+  describe('query and count entries', () => {
     let uuids: string[]
 
     beforeAll(async () => {
@@ -100,6 +100,11 @@ describe('Database', () => {
           value: { answer: 'bar' },
         },
       ])
+    })
+
+    it('should be able to count entries', async () => {
+      expect(await db.count()).toBe(3)
+      expect(await dbComplex.count()).toBe(1)
     })
 
     it('should be able to paginate entries', async () => {
