@@ -2,7 +2,7 @@ import { redis, ExecT } from './backend'
 import { ChainableCommander, RedisKey, RedisValue } from 'ioredis'
 import crypto from 'crypto'
 
-export interface Entry<K, V> {
+export interface Entry<K, V> extends Record<string, unknown> {
   id: string
   key: K
   value: V
