@@ -1,14 +1,12 @@
 import { redis, ExecT } from './backend'
-import { ChainableCommander, RedisKey, RedisValue } from 'ioredis'
-import crypto from 'crypto'
+import { ChainableCommander } from 'ioredis'
 
-export interface Entry<K, V> extends Record<string, unknown> {
+export type Entry<ValueT> = {
   id: string
-  key: K
-  value: V
+  value: ValueT
 }
 
-export interface Index {
+export type Index = {
   name: string
   parent?: Index
 }
@@ -16,58 +14,51 @@ export interface Index {
 /**
   INDEX SCHEMA
 
-  `key-cache:${CACHE_NAME}:${CONTENT_ID}`: this is where the entry is
+  `${REDIS_PREFIX}:${CACHE_NAME}:${CONTENT_ID}`: this is where the entry is
       stored (as a string until we have json support)
 
-  `key-cache:${CACHE_NAME}:${CONTENT_ID}/indexes`: this is where the
+  `${REDIS_PREFIX}:${CACHE_NAME}:${CONTENT_ID}/indexes`: this is where the
       list of tags is stored, as a set of strings, so we can delete
       the entry's index memberships later
 
-  `key-cache:index:${CACHE_NAME}:{TAG_1}/{TAG_2}`: this is an example
+  `${REDIS_PREFIX}:index:${CACHE_NAME}:{TAG_1}/{TAG_2}`: this is an example
       index, stored as a sorted set of content id strings, so we can
       list the entries later that fall under an optionally-nested tag.
 
-      NOTE: `key-cache:index:${CACHE_NAME}` is the root index, with
+      NOTE: `${REDIS_PREFIX}:index:${CACHE_NAME}` is the root index, with
       everything in it.
   
-  `key-cache:index:${CACHE_NAME}:{TAG_1}/{TAG_2}:children`: this is
+  `${REDIS_PREFIX}:index:${CACHE_NAME}:{TAG_1}/{TAG_2}:children`: this is
       a sorted set of the children on an index, so we can list them
       and delete them later
  */
 
 const GLOBAL_PREFIX = process.env['REDIS_PREFIX'] || ''
 
-type KeyT = RedisKey | Record<string, unknown>
-type ValueT = RedisValue | Record<string, unknown>
-
 export interface Options {
   defaultExpiration?: number // Default expiration (in seconds) to use for each entry. Defaults to undefined
   indexPathSeparator?: string // Separator for nested indexes. Defaults to "/"
-  hashingAlgo?: string // Algorithm to use for hashing keys, defaults to sha1
 }
 
-class Database<K extends KeyT, V extends ValueT | ValueT[]> {
+class Database<ValueT> {
   public exp: number | undefined
 
   // Private, since changing this after initialization will break things
   private _name: string
   private _indexPathSeparator: string
-  private _hashingAlgo: string
 
   constructor(name: string, opts: Options = {}) {
     this.exp = opts.defaultExpiration
     this._name = name
     this._indexPathSeparator = opts.indexPathSeparator || '/'
-    this._hashingAlgo = opts.hashingAlgo || 'sha1'
   }
 
   public get name() {
     return this._name
   }
 
-  async get(entryKey: K): Promise<V | undefined> {
-    const cid = this.toCID(entryKey)
-    const ret = await this._getByCID(cid)
+  async get(id: string): Promise<ValueT | undefined> {
+    const ret = await this._getRawEntry(id)
     if (!ret) {
       return undefined
     }
@@ -79,61 +70,44 @@ class Database<K extends KeyT, V extends ValueT | ValueT[]> {
   }
 
   async set(
-    key: K,
-    value: V,
-    tagNames?: string | string[],
-    sortBy?: (val: V) => number
+    id: string,
+    value: ValueT,
+    indexNames?: string | string[],
+    sortBy?: (val: ValueT) => number
   ): Promise<ExecT> {
-    if (!Array.isArray(tagNames)) {
-      tagNames = [tagNames || '']
+    if (!Array.isArray(indexNames)) {
+      indexNames = [indexNames || '']
     }
-    const cid = this.toCID(key)
-
-    const entry: Entry<K, V> = {
-      id: cid,
-      key: key,
+    const entry: Entry<ValueT> = {
+      id: id,
       value: value,
     }
 
     const score = sortBy ? sortBy(value) : new Date().getTime()
-    const tags = tagNames.map(p => this._getIndexHierarchy(p))
+    const tags = indexNames.map(p => this._getIndexHierarchy(p))
 
-    let txn = redis.multi().set(this._entryKey(cid), JSON.stringify(entry))
+    let txn = redis.multi().set(this._entryKey(id), JSON.stringify(entry))
 
     for (const tag of tags) {
-      txn = this._updateIndex(txn, tag, cid, score)
+      txn = this._updateIndex(txn, tag, id, score)
     }
 
     // Set expiration
     // TODO: provide a way to clean up index keys
     if (this.exp) {
-      txn = txn.expire(this._entryKey(cid), this.exp)
+      txn = txn.expire(this._entryKey(id), this.exp)
     }
     return txn.exec()
-  }
-
-  async del(key: K): Promise<ExecT> {
-    const cid = this.toCID(key)
-    return this._delByID(cid)
-  }
-
-  toCID(obj: K): string {
-    if (!(typeof obj === 'object') || obj instanceof Buffer) {
-      return this._hash(obj.toString())
-    }
-    const keys = Object.keys(obj).sort()
-    const values = keys.map(k => obj[k])
-    return this._hash(JSON.stringify([keys, values]))
   }
 
   async clear(indexPath?: string): Promise<PromiseSettledResult<ExecT>[]> {
     console.log('DELETING ' + (indexPath || 'ALL'))
 
     const index = this._getIndexHierarchy(indexPath || '')
-    const cids = await redis.zrange(this._indexKey(index), 0, -1)
+    const ids = await redis.zrange(this._indexKey(index), 0, -1)
 
     // Pipeline multple calls to delete above
-    const deletions = cids.map(cid => this._delByID(cid))
+    const deletions = ids.map(id => this.del(id))
     // Also delete the index itself and all children
     const indexMultiDeletion = this._recursiveIndexDeletion(
       redis.multi(),
@@ -147,7 +121,7 @@ class Database<K extends KeyT, V extends ValueT | ValueT[]> {
     indexPath?: string | undefined,
     offset = 0,
     limit = 20
-  ): Promise<Entry<K, V>[]> {
+  ): Promise<Entry<ValueT>[]> {
     const index = this._getIndexHierarchy(indexPath || '')
     const hashes = await redis.zrange(
       this._indexKey(index),
@@ -155,7 +129,7 @@ class Database<K extends KeyT, V extends ValueT | ValueT[]> {
       offset + limit - 1, // ZRANGE limits are inclusive
       'REV'
     )
-    const values = await Promise.all(hashes.map(h => this._getByCID(h)))
+    const values = await Promise.all(hashes.map(h => this._getRawEntry(h)))
     return values
       .map(v => v && JSON.parse(v))
       .filter(o => this._isValidEntry(o))
@@ -171,57 +145,52 @@ class Database<K extends KeyT, V extends ValueT | ValueT[]> {
     return redis.zrange(redisKey, offset, offset + limit)
   }
 
-  _updateIndex(
-    txn: ChainableCommander,
-    tag: Index,
-    cid: string,
-    score: number
-  ) {
-    txn = txn.sadd(this._indexesForEntryKey(cid), tag.name)
-
-    // Traverse child hierarchy
-    while (tag.parent) {
-      txn = txn.zadd(this._indexKey(tag), score, cid)
-      txn = txn.zadd(this._childrenOfIndexKey(tag.parent), 0, tag.name)
-      tag = tag.parent
-    }
-    // Note that there might be harmless, duplicate zadd calls for shared parents
-    txn = txn.zadd(this._indexKey(tag), score, cid)
-    return txn
-  }
-
-  async _delByID(cid: string): Promise<ExecT> {
-    const indexKey = this._indexesForEntryKey(cid)
-    console.log(`DELETING ENTRY ${cid} AND INDEX KEY ${indexKey}`)
+  async del(id: string): Promise<ExecT> {
+    const indexKey = this._indexesForEntryKey(id)
+    console.log(`DELETING ENTRY ${id} AND INDEX KEY ${indexKey}`)
     const indexPaths = await redis.smembers(indexKey)
     const indexes = indexPaths.map(p => this._getIndexHierarchy(p))
 
-    let txn = redis.multi().del(this._entryKey(cid)).del(indexKey)
+    let txn = redis.multi().del(this._entryKey(id)).del(indexKey)
 
     for (let index of indexes) {
       // Traverse child hierarchy
       while (index.parent) {
-        txn = txn.zrem(this._indexKey(index), cid)
+        txn = txn.zrem(this._indexKey(index), id)
         index = index.parent
       }
       // Root. Note that there might be duplicate zrem calls for shared parents, esp root
-      txn = txn.zrem(this._indexKey(index), cid)
+      txn = txn.zrem(this._indexKey(index), id)
     }
     return txn.exec()
   }
 
+  _updateIndex(txn: ChainableCommander, tag: Index, id: string, score: number) {
+    txn = txn.sadd(this._indexesForEntryKey(id), tag.name)
+
+    // Traverse child hierarchy
+    while (tag.parent) {
+      txn = txn.zadd(this._indexKey(tag), score, id)
+      txn = txn.zadd(this._childrenOfIndexKey(tag.parent), 0, tag.name)
+      tag = tag.parent
+    }
+    // Note that there might be harmless, duplicate zadd calls for shared parents
+    txn = txn.zadd(this._indexKey(tag), score, id)
+    return txn
+  }
+
   // Helpers
 
-  _getByCID(cid: string): Promise<string | null> {
-    return redis.get(this._entryKey(cid))
+  _getRawEntry(id: string): Promise<string | null> {
+    return redis.get(this._entryKey(id))
   }
 
-  _entryKey(cid: string): string {
-    return `${GLOBAL_PREFIX}:${this.name}:${cid}`
+  _entryKey(id: string): string {
+    return `${GLOBAL_PREFIX}:${this.name}:${id}`
   }
 
-  _indexesForEntryKey(cid: string): string {
-    return `${this._entryKey(cid)}/indexes`
+  _indexesForEntryKey(id: string): string {
+    return `${this._entryKey(id)}/indexes`
   }
 
   _indexKey(index: Index): string {
@@ -255,9 +224,9 @@ class Database<K extends KeyT, V extends ValueT | ValueT[]> {
   }
 
   _isValidEntry(
-    x: Record<string, unknown> | null | undefined
-  ): x is Entry<K, V> {
-    return !!x && 'key' in x && 'value' in x && 'id' in x
+    x: Record<keyof Entry<unknown>, unknown> | null | undefined
+  ): x is Entry<ValueT> {
+    return !!x && 'value' in x && 'id' in x
   }
 
   _recursiveIndexDeletion(
@@ -270,13 +239,6 @@ class Database<K extends KeyT, V extends ValueT | ValueT[]> {
       ret = this._recursiveIndexDeletion(ret, this._getIndexHierarchy(child))
     }
     return ret.del(this._childrenOfIndexKey(index))
-  }
-
-  _hash(toHash: string): string {
-    return crypto
-      .createHash(this._hashingAlgo)
-      .update(toHash, 'utf8')
-      .digest('hex')
   }
 }
 

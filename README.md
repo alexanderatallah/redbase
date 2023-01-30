@@ -2,10 +2,10 @@
 
 A simple, fast, type-safe database on top of Redis.
 
-### Key features
+### Features
 
 - Hierarchical indexes (useful for tagging cached data)
-- Objects of arbitrary size can be used as keys
+- Small: only \_\_\_ lines
 - Zero npm dependencies (works with `redis`, `node-redis` and `ioredis`)
 - Only core Redis - no dependencies on Redis modules (useful for deploying on platforms like Upstash).
 
@@ -36,20 +36,18 @@ npm install redis-database
 ```ts
 import { Database } from 'redis-database'
 
-// Can use strings or buffers as well
-type MyKey = {
-  k: string
-}
-
 // Can use strings, numbers or buffers as well
 type MyValue = {
-  v: string
+  a: string
+  b?: {
+    c: string
+  }
 }
 
-const db = new Database<MyKey, MyValue>('myProject')
+const db = new Database<MyValue>('myProject')
 
-const key = { k: 'test' }
-const value = { v: 'result' }
+const key = uuid()
+const value = { a: 'result' }
 
 await db.get(key) // undefined
 
@@ -60,19 +58,19 @@ await db.get(key) // value
 // Type safety!
 
 await db.get('test2') // Type error on key
-await db.set(key, { prop: 'result' }) // Type error on value
+await db.set(key, { c: 'result2' }) // Type error on value
 
 // Browsing results
-let data = await db.index()
-assertDeepEquals(data, [{ key: { k: 'test' }, value: { v: 'result' } }])
+let data = await db.entries()
+assertDeepEquals(data, [{ id: key, value: { a: 'result' } }])
 
 // Hierarchical indexes
-await db.set({ k: 'hi' }, { v: 'there' }, ['user1/project1'])
-await db.set({ k: 'bye' }, { v: 'bye' }, ['user1/project2'])
-await db.set({ k: 'bye' }, { v: 'bye' }, ['user2/project1'])
+await db.set(uuid(), { a: 'hi' }, ['user1/project1'])
+await db.set(uuid(), { a: 'there' }, ['user1/project2'])
+await db.set(uuid(), { a: 'bye' }, ['user2/project1'])
 
 data = await db.index()
-assertEquals(data.length, 5)
+assertEquals(data.length, 3)
 
 data = await db.index('user1')
 assertEquals(data.length, 2)

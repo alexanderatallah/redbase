@@ -1,16 +1,15 @@
 import { Database, redis } from '../src'
-import crypto from 'crypto'
+import { v4 as uuidv4 } from 'uuid'
 
 describe('Database', () => {
-  type KeyT = { question: string; mode: number }
   type ValueT = { answer: string; optional?: number[] }
 
-  let db: Database<string, string>
-  let dbComplex: Database<KeyT, ValueT>
+  let db: Database<string>
+  let dbComplex: Database<ValueT>
 
   beforeAll(() => {
-    db = new Database<string, string>('Test')
-    dbComplex = new Database<KeyT, ValueT>('TestComplex')
+    db = new Database<string>('Test')
+    dbComplex = new Database<ValueT>('TestComplex')
   })
 
   afterAll(async () => {
@@ -22,57 +21,56 @@ describe('Database', () => {
   describe('static properties', () => {
     it('should have a name getter', () => {
       expect(db.name).toBe('Test')
+      expect(dbComplex.name).toBe('TestComplex')
     })
 
     it('shoudl not have a name setter', () => {
       // @ts-ignore
       expect(() => (db.name = 'Test')).toThrowError()
     })
-
-    it('should default to sha1 hashes', () => {
-      const toHash = 'test'
-      const hashed = crypto
-        .createHash('sha1')
-        .update(toHash, 'utf8')
-        .digest('hex')
-      expect(db._hash('test')).toBe(hashed)
-    })
   })
 
   describe('single get/set/delete', () => {
+    let uuid: string
+
     afterAll(async () => {
       await db.clear()
       await dbComplex.clear()
     })
 
     it('should be able to set values', async () => {
-      await db.set('foo', 'bar')
-      expect(await db.get('foo')).toBe('bar')
+      uuid = uuidv4()
+      await db.set(uuid, 'bar')
+      expect(await db.get(uuid)).toBe('bar')
 
-      await dbComplex.set({ question: 'foo', mode: 1 }, { answer: 'bar' })
-      expect(await dbComplex.get({ question: 'foo', mode: 1 })).toEqual({
+      await dbComplex.set(uuid, { answer: 'bar' })
+      expect(await dbComplex.get(uuid)).toEqual({
         answer: 'bar',
       })
     })
 
     it('should not get unknown values', async () => {
-      expect(await db.get('baz')).toBe(undefined)
-      expect(await dbComplex.get({ question: 'baz', mode: 1 })).toBe(undefined)
+      expect(await db.get(uuidv4())).toBe(undefined)
+      expect(await dbComplex.get(uuidv4())).toBe(undefined)
     })
 
     it('should be able to delete entries', async () => {
-      await db.del('foo')
-      expect(await db.get('foo')).toBe(undefined)
+      await db.del(uuid)
+      expect(await db.get(uuid)).toBe(undefined)
     })
   })
 
   describe('query entries', () => {
+    let uuids: string[]
+
     beforeAll(async () => {
-      await db.set('foo', 'bar')
-      await db.set('baz', 'qux')
-      await db.set('max', 'power')
-      await dbComplex.set({ question: 'foo', mode: 1 }, { answer: 'bar' })
+      uuids = [uuidv4(), uuidv4(), uuidv4(), uuidv4()]
+      await db.set(uuids[0], 'bar')
+      await db.set(uuids[1], 'qux')
+      await db.set(uuids[2], 'power')
+      await dbComplex.set(uuids[3], { answer: 'bar' })
     })
+
     afterAll(async () => {
       await db.clear()
       await dbComplex.clear()
@@ -82,18 +80,15 @@ describe('Database', () => {
       const data = await db.entries()
       expect(data).toEqual([
         {
-          id: '0706025b2bbcec1ed8d64822f4eccd96314938d0',
-          key: 'max',
+          id: uuids[2],
           value: 'power',
         },
         {
-          id: 'bbe960a25ea311d21d40669e93df2003ba9b90a2',
-          key: 'baz',
+          id: uuids[1],
           value: 'qux',
         },
         {
-          id: '0beec7b5ea3f0fdbc95d0dd47f3c5bc275da8a33',
-          key: 'foo',
+          id: uuids[0],
           value: 'bar',
         },
       ])
@@ -101,8 +96,7 @@ describe('Database', () => {
       const complexData = await dbComplex.entries()
       expect(complexData).toEqual([
         {
-          id: 'f653664de1d9478efcfc8e59e2b49e931bf28db8',
-          key: { question: 'foo', mode: 1 },
+          id: uuids[3],
           value: { answer: 'bar' },
         },
       ])
@@ -112,13 +106,11 @@ describe('Database', () => {
       let data = await db.entries(undefined, 0, 2)
       expect(data).toEqual([
         {
-          id: '0706025b2bbcec1ed8d64822f4eccd96314938d0',
-          key: 'max',
+          id: uuids[2],
           value: 'power',
         },
         {
-          id: 'bbe960a25ea311d21d40669e93df2003ba9b90a2',
-          key: 'baz',
+          id: uuids[1],
           value: 'qux',
         },
       ])
@@ -126,8 +118,7 @@ describe('Database', () => {
       data = await db.entries(undefined, 2, 2)
       expect(data).toEqual([
         {
-          id: '0beec7b5ea3f0fdbc95d0dd47f3c5bc275da8a33',
-          key: 'foo',
+          id: uuids[0],
           value: 'bar',
         },
       ])
