@@ -34,10 +34,59 @@ npm install redis-database
 ## Usage
 
 ```ts
-import { myPackage } from 'redis-database';
+import { Database } from 'redis-database';
 
-myPackage('hello');
-//=> 'hello from my package'
+// Can use strings or buffers as well
+type MyKey = {
+  k: string
+}
+
+// Can use strings, numbers or buffers as well
+type MyValue = {
+  v: string
+}
+
+const db = new Database<MyKey, MyValue>('myProject')
+
+const key = {k: "test"}
+const value = {v: "result"}
+
+await db.get(key) // undefined
+
+await db.set(key, value)
+
+await db.get(key) // value
+
+// Type safety!
+
+await db.get("test2") // Type error on key
+await db.set(key, {prop: "result"}) // Type error on value
+
+// Browsing results
+let data = await db.index()
+assertDeepEquals(data,
+  [
+    { key: {k: "test"},
+      value: {v: "result"}
+    }
+  ]
+)
+
+// Hierarchical indexes
+await db.set({k: "hi"}, {v: "there"}, ["user1/project1"])
+await db.set({k: "bye"}, {v: "bye"}, ["user1/project2"])
+await db.set({k: "bye"}, {v: "bye"}, ["user2/project1"])
+
+data = await db.index()
+assertEquals(data.length, 5)
+
+data = await db.index("user1")
+assertEquals(data.length, 2)
+
+// TODO data = await db.index("project1")
+// assertEquals(data.length, ??)
+
+
 ```
 
 ## API

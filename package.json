@@ -14,7 +14,7 @@
     "prepare": "husky install",
     "semantic-release": "semantic-release",
     "test:watch": "jest --watch",
-    "test": "jest --coverage",
+    "test": "jest --coverage --detectOpenHandles",
     "typecheck": "tsc --noEmit"
   },
   "repository": {
@@ -28,7 +28,7 @@
     "url": "https://github.com/alexanderatallah"
   },
   "engines": {
-    "node": ">=12.0"
+    "node": ">=12.9"
   },
   "keywords": [
     "boilerplate",
