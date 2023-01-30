@@ -10,14 +10,14 @@ export interface Options {
 
 export type OrderDirection = 'asc' | 'desc'
 
-export type Entry<ValueT> = {
-  id: string
-  value: ValueT
-}
-
 export type Index = {
   name: string
   parent?: Index
+}
+
+export type WithID<ValueT> = {
+  id: string
+  value: ValueT
 }
 
 /**
@@ -60,15 +60,15 @@ class Database<ValueT> {
   }
 
   async get(id: string): Promise<ValueT | undefined> {
-    const ret = await this._getRawEntry(id)
+    const ret = await this._getRawValue(id)
     if (!ret) {
       return undefined
     }
     const parsed = JSON.parse(ret)
-    if (!this._isValidEntry(parsed)) {
+    if (!this._isValue(parsed)) {
       return undefined
     }
-    return parsed.value
+    return parsed
   }
 
   async set(
@@ -80,15 +80,11 @@ class Database<ValueT> {
     if (!Array.isArray(indexNames)) {
       indexNames = [indexNames || '']
     }
-    const entry: Entry<ValueT> = {
-      id: id,
-      value: value,
-    }
 
     const score = sortBy ? sortBy(value) : new Date().getTime()
     const tags = indexNames.map(p => this._getIndexHierarchy(p))
 
-    let txn = redis.multi().set(this._entryKey(id), JSON.stringify(entry))
+    let txn = redis.multi().set(this._entryKey(id), JSON.stringify(value))
 
     for (const tag of tags) {
       txn = this._updateIndex(txn, tag, id, score)
@@ -126,7 +122,7 @@ class Database<ValueT> {
     offset = 0,
     limit = 20,
     ordering: OrderDirection = 'asc'
-  ): Promise<Entry<ValueT>[]> {
+  ): Promise<WithID<ValueT>[]> {
     const index = this._getIndexHierarchy(indexPath || '')
     const args: [string, number, number] = [
       this._indexKey(index),
@@ -137,10 +133,15 @@ class Database<ValueT> {
       args.push('REV')
     }
     const ids = await redis.zrange(...args)
-    const values = await Promise.all(ids.map(h => this._getRawEntry(h)))
+    const values = await Promise.all(ids.map(h => this._getRawValue(h)))
     return values
-      .map(v => v && JSON.parse(v))
-      .filter(o => this._isValidEntry(o))
+      .map((o, i) => {
+        const maybeVal = o ? JSON.parse(o) : undefined
+        return this._isValue(maybeVal)
+          ? { id: ids[i], value: maybeVal }
+          : undefined
+      })
+      .filter((maybeVal): maybeVal is WithID<ValueT> => !!maybeVal)
   }
 
   async indexes(
@@ -191,7 +192,7 @@ class Database<ValueT> {
 
   // Helpers
 
-  _getRawEntry(id: string): Promise<string | null> {
+  _getRawValue(id: string): Promise<string | null> {
     return redis.get(this._entryKey(id))
   }
 
@@ -233,10 +234,8 @@ class Database<ValueT> {
     }
   }
 
-  _isValidEntry(
-    x: Record<keyof Entry<unknown>, unknown> | null | undefined
-  ): x is Entry<ValueT> {
-    return !!x && 'value' in x && 'id' in x
+  _isValue(x: ValueT | null | undefined): x is ValueT {
+    return !!x
   }
 
   _recursiveIndexDeletion(
