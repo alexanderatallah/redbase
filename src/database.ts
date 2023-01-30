@@ -1,6 +1,15 @@
 import { redis, ExecT } from './backend'
 import { ChainableCommander } from 'ioredis'
 
+const GLOBAL_PREFIX = process.env['REDIS_PREFIX'] || ''
+const DEBUG = process.env['DEBUG'] === 'true'
+export interface Options {
+  defaultExpiration?: number // Default expiration (in seconds) to use for each entry. Defaults to undefined
+  indexPathSeparator?: string // Separator for nested indexes. Defaults to "/"
+}
+
+export type OrderDirection = 'asc' | 'desc'
+
 export type Entry<ValueT> = {
   id: string
   value: ValueT
@@ -32,13 +41,6 @@ export type Index = {
       a sorted set of the children on an index, so we can list them
       and delete them later
  */
-
-const GLOBAL_PREFIX = process.env['REDIS_PREFIX'] || ''
-
-export interface Options {
-  defaultExpiration?: number // Default expiration (in seconds) to use for each entry. Defaults to undefined
-  indexPathSeparator?: string // Separator for nested indexes. Defaults to "/"
-}
 
 class Database<ValueT> {
   public exp: number | undefined
@@ -101,7 +103,9 @@ class Database<ValueT> {
   }
 
   async clear(indexPath?: string): Promise<PromiseSettledResult<ExecT>[]> {
-    console.log('DELETING ' + (indexPath || 'ALL'))
+    if (DEBUG) {
+      console.log('DELETING ' + (indexPath || 'ALL'))
+    }
 
     const index = this._getIndexHierarchy(indexPath || '')
     const ids = await redis.zrange(this._indexKey(index), 0, -1)
@@ -120,16 +124,20 @@ class Database<ValueT> {
   async entries(
     indexPath?: string | undefined,
     offset = 0,
-    limit = 20
+    limit = 20,
+    ordering: OrderDirection = 'asc'
   ): Promise<Entry<ValueT>[]> {
     const index = this._getIndexHierarchy(indexPath || '')
-    const hashes = await redis.zrange(
+    const args: [string, number, number] = [
       this._indexKey(index),
       offset,
       offset + limit - 1, // ZRANGE limits are inclusive
-      'REV'
-    )
-    const values = await Promise.all(hashes.map(h => this._getRawEntry(h)))
+    ]
+    if (ordering === 'desc') {
+      args.push('REV')
+    }
+    const ids = await redis.zrange(...args)
+    const values = await Promise.all(ids.map(h => this._getRawEntry(h)))
     return values
       .map(v => v && JSON.parse(v))
       .filter(o => this._isValidEntry(o))
@@ -147,7 +155,9 @@ class Database<ValueT> {
 
   async del(id: string): Promise<ExecT> {
     const indexKey = this._indexesForEntryKey(id)
-    console.log(`DELETING ENTRY ${id} AND INDEX KEY ${indexKey}`)
+    if (DEBUG) {
+      console.log(`DELETING ENTRY ${id} AND INDEX KEY ${indexKey}`)
+    }
     const indexPaths = await redis.smembers(indexKey)
     const indexes = indexPaths.map(p => this._getIndexHierarchy(p))
 

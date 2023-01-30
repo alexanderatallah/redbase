@@ -80,16 +80,16 @@ describe('Database', () => {
       const data = await db.entries()
       expect(data).toEqual([
         {
-          id: uuids[2],
-          value: 'power',
+          id: uuids[0],
+          value: 'bar',
         },
         {
           id: uuids[1],
           value: 'qux',
         },
         {
-          id: uuids[0],
-          value: 'bar',
+          id: uuids[2],
+          value: 'power',
         },
       ])
 
@@ -106,8 +106,8 @@ describe('Database', () => {
       let data = await db.entries(undefined, 0, 2)
       expect(data).toEqual([
         {
-          id: uuids[2],
-          value: 'power',
+          id: uuids[0],
+          value: 'bar',
         },
         {
           id: uuids[1],
@@ -118,8 +118,8 @@ describe('Database', () => {
       data = await db.entries(undefined, 2, 2)
       expect(data).toEqual([
         {
-          id: uuids[0],
-          value: 'bar',
+          id: uuids[2],
+          value: 'power',
         },
       ])
     })
