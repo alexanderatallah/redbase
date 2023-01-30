@@ -8,9 +8,9 @@ export interface Entry<K, V> extends Record<string, unknown> {
   value: V
 }
 
-export interface Tag {
+export interface Index {
   name: string
-  parent?: Tag
+  parent?: Index
 }
 
 /**
@@ -65,17 +65,8 @@ class Database<K extends KeyT, V extends ValueT | ValueT[]> {
     return this._name
   }
 
-  getCID(obj: K): string {
-    if (!(typeof obj === 'object') || obj instanceof Buffer) {
-      return this._hash(obj.toString())
-    }
-    const keys = Object.keys(obj).sort()
-    const values = keys.map(k => obj[k])
-    return this._hash(JSON.stringify([keys, values]))
-  }
-
   async get(entryKey: K): Promise<V | undefined> {
-    const cid = this.getCID(entryKey)
+    const cid = this.toCID(entryKey)
     const ret = await this._getByCID(cid)
     if (!ret) {
       return undefined
@@ -88,7 +79,7 @@ class Database<K extends KeyT, V extends ValueT | ValueT[]> {
   }
 
   async set(
-    entryKey: K,
+    key: K,
     value: V,
     tagNames?: string | string[],
     sortBy?: (val: V) => number
@@ -96,16 +87,16 @@ class Database<K extends KeyT, V extends ValueT | ValueT[]> {
     if (!Array.isArray(tagNames)) {
       tagNames = [tagNames || '']
     }
-    const cid = this.getCID(entryKey)
+    const cid = this.toCID(key)
 
     const entry: Entry<K, V> = {
       id: cid,
-      key: entryKey,
+      key: key,
       value: value,
     }
 
     const score = sortBy ? sortBy(value) : new Date().getTime()
-    const tags = tagNames.map(p => this._getTagHierarchy(p))
+    const tags = tagNames.map(p => this._getIndexHierarchy(p))
 
     let txn = redis.multi().set(this._entryKey(cid), JSON.stringify(entry))
 
@@ -114,7 +105,7 @@ class Database<K extends KeyT, V extends ValueT | ValueT[]> {
     }
 
     // Set expiration
-    // TODO: set expiration on index keys
+    // TODO: provide a way to clean up index keys
     if (this.exp) {
       txn = txn.expire(this._entryKey(cid), this.exp)
     }
@@ -122,11 +113,70 @@ class Database<K extends KeyT, V extends ValueT | ValueT[]> {
   }
 
   async del(key: K): Promise<ExecT> {
-    const cid = this.getCID(key)
+    const cid = this.toCID(key)
     return this._delByID(cid)
   }
 
-  _updateIndex(txn: ChainableCommander, tag: Tag, cid: string, score: number) {
+  toCID(obj: K): string {
+    if (!(typeof obj === 'object') || obj instanceof Buffer) {
+      return this._hash(obj.toString())
+    }
+    const keys = Object.keys(obj).sort()
+    const values = keys.map(k => obj[k])
+    return this._hash(JSON.stringify([keys, values]))
+  }
+
+  async clear(indexPath?: string): Promise<PromiseSettledResult<ExecT>[]> {
+    console.log('DELETING ' + (indexPath || 'ALL'))
+
+    const index = this._getIndexHierarchy(indexPath || '')
+    const cids = await redis.zrange(this._indexKey(index), 0, -1)
+
+    // Pipeline multple calls to delete above
+    const deletions = cids.map(cid => this._delByID(cid))
+    // Also delete the index itself and all children
+    const indexMultiDeletion = this._recursiveIndexDeletion(
+      redis.multi(),
+      index
+    ).exec()
+
+    return Promise.allSettled([...deletions, indexMultiDeletion])
+  }
+
+  async entries(
+    indexPath?: string | undefined,
+    offset = 0,
+    limit = 20
+  ): Promise<Entry<K, V>[]> {
+    const index = this._getIndexHierarchy(indexPath || '')
+    const hashes = await redis.zrange(
+      this._indexKey(index),
+      offset,
+      offset + limit - 1, // ZRANGE limits are inclusive
+      'REV'
+    )
+    const values = await Promise.all(hashes.map(h => this._getByCID(h)))
+    return values
+      .map(v => v && JSON.parse(v))
+      .filter(o => this._isValidEntry(o))
+  }
+
+  async indexes(
+    rootIndexName?: string | undefined,
+    offset = 0,
+    limit = 20
+  ): Promise<string[]> {
+    const index = this._getIndexHierarchy(rootIndexName || '')
+    const redisKey = this._childrenOfIndexKey(index)
+    return redis.zrange(redisKey, offset, offset + limit)
+  }
+
+  _updateIndex(
+    txn: ChainableCommander,
+    tag: Index,
+    cid: string,
+    score: number
+  ) {
     txn = txn.sadd(this._indexesForEntryKey(cid), tag.name)
 
     // Traverse child hierarchy
@@ -141,11 +191,10 @@ class Database<K extends KeyT, V extends ValueT | ValueT[]> {
   }
 
   async _delByID(cid: string): Promise<ExecT> {
-    console.log('DELETING ENTRY', cid)
     const indexKey = this._indexesForEntryKey(cid)
-    console.log('DELETING INDEX SET', indexKey)
+    console.log(`DELETING ENTRY ${cid} AND INDEX KEY ${indexKey}`)
     const indexPaths = await redis.smembers(indexKey)
-    const indexes = indexPaths.map(p => this._getTagHierarchy(p))
+    const indexes = indexPaths.map(p => this._getIndexHierarchy(p))
 
     let txn = redis.multi().del(this._entryKey(cid)).del(indexKey)
 
@@ -159,51 +208,6 @@ class Database<K extends KeyT, V extends ValueT | ValueT[]> {
       txn = txn.zrem(this._indexKey(index), cid)
     }
     return txn.exec()
-  }
-
-  async clear(indexPath?: string): Promise<PromiseSettledResult<ExecT>[]> {
-    console.log('DELETING ' + (indexPath || 'ALL'))
-
-    const index = this._getTagHierarchy(indexPath || '')
-    const cids = await redis.zrange(this._indexKey(index), 0, -1)
-
-    // Pipeline multple calls to delete above
-    const deletions = cids.map(cid => this._delByID(cid))
-    // Also delete the index itself and all children
-    const indexMultiDeletion = this._recursiveIndexDeletion(
-      redis.multi(),
-      index
-    ).exec()
-
-    return Promise.allSettled([...deletions, indexMultiDeletion])
-  }
-
-  async index(
-    indexPath?: string | undefined,
-    offset = 0,
-    limit = 20
-  ): Promise<Entry<K, V>[]> {
-    const index = this._getTagHierarchy(indexPath || '')
-    const hashes = await redis.zrange(
-      this._indexKey(index),
-      offset,
-      offset + limit,
-      'REV'
-    )
-    const values = await Promise.all(hashes.map(h => this._getByCID(h)))
-    return values
-      .map(v => v && JSON.parse(v))
-      .filter(o => this._isValidEntry(o))
-  }
-
-  async subTags(
-    rootTag?: string | undefined,
-    offset = 0,
-    limit = 20
-  ): Promise<string[]> {
-    const index = this._getTagHierarchy(rootTag || '')
-    const redisKey = this._childrenOfIndexKey(index)
-    return redis.zrange(redisKey, offset, offset + limit)
   }
 
   // Helpers
@@ -220,33 +224,33 @@ class Database<K extends KeyT, V extends ValueT | ValueT[]> {
     return `${this._entryKey(cid)}/indexes`
   }
 
-  _indexKey(tag: Tag): string {
-    const suffix = tag.name ? `:${tag.name}` : ''
+  _indexKey(index: Index): string {
+    const suffix = index.name ? `:${index.name}` : ''
     return `${GLOBAL_PREFIX}:${this.name}:index${suffix}`
   }
 
-  _childrenOfIndexKey(tag: Tag): string {
-    return `${this._indexKey(tag)}:children`
+  _childrenOfIndexKey(index: Index): string {
+    return `${this._indexKey(index)}:children`
   }
 
-  _getTagHierarchy(tagName: string): Tag {
+  _getIndexHierarchy(indexName: string): Index {
     // Input: "/a/b/c"
     // Output: ["", "/a", "/a/b", "/a/b/c"]
     // Invalid: "/", "/a/b/c/"
-    if (tagName === '/' || tagName?.endsWith(this._indexPathSeparator)) {
-      throw new Error('Path must not be or end with separator: ' + tagName)
+    if (indexName === '/' || indexName?.endsWith(this._indexPathSeparator)) {
+      throw new Error('Path must not be or end with separator: ' + indexName)
     }
-    if (!tagName) {
+    if (!indexName) {
       // Root node
       return { name: '' }
     }
-    const parentName = tagName
+    const parentName = indexName
       .split(this._indexPathSeparator)
       .slice(0, -1)
       .join(this._indexPathSeparator)
     return {
-      name: tagName,
-      parent: this._getTagHierarchy(parentName),
+      name: indexName,
+      parent: this._getIndexHierarchy(parentName),
     }
   }
 
@@ -258,14 +262,14 @@ class Database<K extends KeyT, V extends ValueT | ValueT[]> {
 
   _recursiveIndexDeletion(
     multi: ChainableCommander,
-    tag: Tag
+    index: Index
   ): ChainableCommander {
-    let ret = multi.del(this._indexKey(tag))
-    const childindexes = redis.zrange(this._childrenOfIndexKey(tag), 0, -1)
+    let ret = multi.del(this._indexKey(index))
+    const childindexes = redis.zrange(this._childrenOfIndexKey(index), 0, -1)
     for (const child in childindexes) {
-      ret = this._recursiveIndexDeletion(ret, this._getTagHierarchy(child))
+      ret = this._recursiveIndexDeletion(ret, this._getIndexHierarchy(child))
     }
-    return ret.del(this._childrenOfIndexKey(tag))
+    return ret.del(this._childrenOfIndexKey(index))
   }
 
   _hash(toHash: string): string {
