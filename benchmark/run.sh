@@ -11,7 +11,9 @@ printf "\n\nTESTING SCROLLING. This will depend on how many inserts were done ea
 hyperfine --runs 3 "ts-node ./benchmark/redis.ts SKIP_INSERT SKIP_DELETE" "ts-node ./benchmark/postgres.ts SKIP_INSERT SKIP_DELETE"
 
 printf "\n\nTESTING DELETES\n"
-hyperfine --warmup 1 --runs 3 "ts-node ./benchmark/redis.ts SKIP_SCROLL" "ts-node ./benchmark/postgres.ts SKIP_SCROLL"
+ts-node ./benchmark/redis.ts SKIP_INSERT
+ts-node ./benchmark/postgres.ts SKIP_INSERT
+hyperfine --runs 3 "ts-node ./benchmark/redis.ts SKIP_SCROLL" "ts-node ./benchmark/postgres.ts SKIP_SCROLL"
 
-printf "\n\nTESTING ALL\n"
-hyperfine --runs 3 "ts-node ./benchmark/redis.ts" "ts-node ./benchmark/postgres.ts"
+# printf "\n\nTESTING ALL\n"
+# hyperfine --runs 3 "ts-node ./benchmark/redis.ts" "ts-node ./benchmark/postgres.ts"
