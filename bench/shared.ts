@@ -6,8 +6,9 @@ const args = process.argv.slice(2)
 export const SKIP_INSERT = args.includes('SKIP_INSERT')
 export const SKIP_SCROLL = args.includes('SKIP_SCROLL')
 export const SKIP_DELETE = args.includes('SKIP_DELETE')
-export const NUM_ROWS = 50_000 // Increasing this slows down Postgres
-export const BATCH_COUNT = 500
+export const DO_SETUP = args.includes('DO_SETUP')
+export const INSERTION_BATCH = 50_000 // Increasing this slows down Postgres
+export const SCROLL_BATCH = 500
 
 export type FakeRow = {
   uuid: string

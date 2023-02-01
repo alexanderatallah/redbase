@@ -1,12 +1,13 @@
 import { Client } from 'pg'
 import {
   randRows,
-  NUM_ROWS,
-  BATCH_COUNT,
+  INSERTION_BATCH,
+  SCROLL_BATCH,
   FakeRow,
   SKIP_INSERT,
   SKIP_DELETE,
   SKIP_SCROLL,
+  DO_SETUP,
 } from './shared'
 
 const client = new Client({
@@ -30,15 +31,28 @@ async function setupSchema() {
   `)
 }
 
+async function setupPostgres() {
+  const result = await client.query(`
+    DELETE FROM fake_rows;
+  `)
+  console.log('Deleted from postgres: ', result.rowCount)
+}
+
 async function main() {
   await client.connect()
   await setupSchema()
+
+  if (DO_SETUP) {
+    await setupPostgres()
+    await client.end()
+    return
+  }
 
   if (!SKIP_INSERT) {
     // Insert each
 
     await Promise.all(
-      randRows(NUM_ROWS).map(row =>
+      randRows(INSERTION_BATCH).map(row =>
         client.query(
           `
         INSERT INTO fake_rows (uuid, name, tags, date, text)
@@ -58,12 +72,12 @@ async function main() {
     const count = (rowCount.rows[0] as { count: number }).count
     console.log('rowCount postgres', count)
 
-    for (let i = 0; i < count; i += BATCH_COUNT) {
+    for (let i = 0; i < count; i += SCROLL_BATCH) {
       await client.query(
         `
       SELECT * FROM fake_rows ORDER BY date DESC OFFSET $1 LIMIT $2
     `,
-        [i, BATCH_COUNT]
+        [i, SCROLL_BATCH]
       )
     }
   }

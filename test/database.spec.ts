@@ -30,7 +30,7 @@ describe('Database', () => {
     })
   })
 
-  describe('single get/set/delete', () => {
+  describe('single get/set/del', () => {
     let uuid: string
 
     afterAll(async () => {
@@ -57,6 +57,9 @@ describe('Database', () => {
     it('should be able to delete entries', async () => {
       await db.del(uuid)
       expect(await db.get(uuid)).toBe(undefined)
+
+      await dbComplex.del(uuid)
+      expect(await dbComplex.get(uuid)).toBe(undefined)
     })
   })
 

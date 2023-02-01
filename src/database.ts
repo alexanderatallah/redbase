@@ -98,7 +98,7 @@ class Database<ValueT> {
     return txn.exec()
   }
 
-  async clear(indexPath?: string): Promise<PromiseSettledResult<ExecT>[]> {
+  async clear(indexPath?: string): Promise<ExecT[]> {
     if (DEBUG) {
       console.log('DELETING ' + (indexPath || 'ALL'))
     }
@@ -114,7 +114,7 @@ class Database<ValueT> {
       index
     ).exec()
 
-    return Promise.allSettled([...deletions, indexMultiDeletion])
+    return Promise.all([...deletions, indexMultiDeletion])
   }
 
   async entries(
@@ -150,8 +150,7 @@ class Database<ValueT> {
     limit = 20
   ): Promise<string[]> {
     const index = this._getIndexHierarchy(rootIndexName || '')
-    const redisKey = this._childrenOfIndexKey(index)
-    return redis.zrange(redisKey, offset, offset + limit)
+    return redis.zrange(this._indexChildrenKey(index), offset, offset + limit)
   }
 
   async count(
@@ -164,14 +163,15 @@ class Database<ValueT> {
   }
 
   async del(id: string): Promise<ExecT> {
-    const indexKey = this._indexesForEntryKey(id)
+    const indexKey = this._entryIndexesKey(id)
     if (DEBUG) {
       console.log(`DELETING ENTRY ${id} AND INDEX KEY ${indexKey}`)
     }
     const indexPaths = await redis.smembers(indexKey)
     const indexes = indexPaths.map(p => this._getIndexHierarchy(p))
 
-    let txn = redis.multi().del(this._entryKey(id)).del(indexKey)
+    // TODO Using unlink instead of del here doesn't seem to improve perf much
+    let txn = redis.multi().unlink(this._entryKey(id)).unlink(indexKey)
 
     for (let index of indexes) {
       // Traverse child hierarchy
@@ -186,12 +186,12 @@ class Database<ValueT> {
   }
 
   _updateIndex(txn: ChainableCommander, tag: Index, id: string, score: number) {
-    txn = txn.sadd(this._indexesForEntryKey(id), tag.name)
+    txn = txn.sadd(this._entryIndexesKey(id), tag.name)
 
     // Traverse child hierarchy
     while (tag.parent) {
       txn = txn.zadd(this._indexKey(tag), score, id)
-      txn = txn.zadd(this._childrenOfIndexKey(tag.parent), 0, tag.name)
+      txn = txn.zadd(this._indexChildrenKey(tag.parent), 0, tag.name)
       tag = tag.parent
     }
     // Note that there might be harmless, duplicate zadd calls for shared parents
@@ -209,7 +209,7 @@ class Database<ValueT> {
     return `${GLOBAL_PREFIX}:${this.name}:${id}`
   }
 
-  _indexesForEntryKey(id: string): string {
+  _entryIndexesKey(id: string): string {
     return `${this._entryKey(id)}/indexes`
   }
 
@@ -218,7 +218,7 @@ class Database<ValueT> {
     return `${GLOBAL_PREFIX}:${this.name}:index${suffix}`
   }
 
-  _childrenOfIndexKey(index: Index): string {
+  _indexChildrenKey(index: Index): string {
     return `${this._indexKey(index)}:children`
   }
 
@@ -252,11 +252,11 @@ class Database<ValueT> {
     index: Index
   ): ChainableCommander {
     let ret = multi.del(this._indexKey(index))
-    const childindexes = redis.zrange(this._childrenOfIndexKey(index), 0, -1)
+    const childindexes = redis.zrange(this._indexChildrenKey(index), 0, -1)
     for (const child in childindexes) {
       ret = this._recursiveIndexDeletion(ret, this._getIndexHierarchy(child))
     }
-    return ret.del(this._childrenOfIndexKey(index))
+    return ret.del(this._indexChildrenKey(index))
   }
 }
 
