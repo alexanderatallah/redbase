@@ -82,12 +82,12 @@ class Database<ValueT> {
     }
 
     const score = sortBy ? sortBy(value) : new Date().getTime()
-    const tags = indexNames.map(p => this._getIndexHierarchy(p))
+    const indexes = indexNames.map(p => this._getIndexHierarchy(p))
 
     let txn = redis.multi().set(this._entryKey(id), JSON.stringify(value))
 
-    for (const tag of tags) {
-      txn = this._updateIndex(txn, tag, id, score)
+    for (const index of indexes) {
+      txn = this._updateIndex(txn, index, id, score)
     }
 
     // Set expiration
@@ -165,7 +165,9 @@ class Database<ValueT> {
   async del(id: string): Promise<ExecT> {
     const indexKey = this._entryIndexesKey(id)
     if (DEBUG) {
-      console.log(`DELETING ENTRY ${id} AND INDEX KEY ${indexKey}`)
+      console.log(
+        `DELETING entry ${id}, the set of indexes at ${indexKey}, and ${id} from those indexes`
+      )
     }
     const indexPaths = await redis.smembers(indexKey)
     const indexes = indexPaths.map(p => this._getIndexHierarchy(p))
@@ -185,17 +187,26 @@ class Database<ValueT> {
     return txn.exec()
   }
 
-  _updateIndex(txn: ChainableCommander, tag: Index, id: string, score: number) {
-    txn = txn.sadd(this._entryIndexesKey(id), tag.name)
+  _updateIndex(
+    txn: ChainableCommander,
+    index: Index,
+    id: string,
+    score: number
+  ) {
+    // Register this index under the entry
+    txn = txn.sadd(this._entryIndexesKey(id), index.name)
 
     // Traverse child hierarchy
-    while (tag.parent) {
-      txn = txn.zadd(this._indexKey(tag), score, id)
-      txn = txn.zadd(this._indexChildrenKey(tag.parent), 0, tag.name)
-      tag = tag.parent
+    while (index.parent) {
+      // Add the entry to this index
+      txn = txn.zadd(this._indexKey(index), score, id)
+      // Register this index under its parent
+      txn = txn.zadd(this._indexChildrenKey(index.parent), 0, index.name)
+      // Move up the hierarchy
+      index = index.parent
     }
-    // Note that there might be harmless, duplicate zadd calls for shared parents
-    txn = txn.zadd(this._indexKey(tag), score, id)
+    // We're at the root index now - add the entry to it as well
+    txn = txn.zadd(this._indexKey(index), score, id)
     return txn
   }
 
