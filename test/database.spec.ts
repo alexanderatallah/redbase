@@ -111,7 +111,7 @@ describe('Database', () => {
     })
 
     it('should be able to paginate entries', async () => {
-      let data = await db.entries(undefined, 0, 2)
+      let data = await db.entries({ limit: 2 })
       expect(data).toEqual([
         {
           id: uuids[0],
@@ -123,11 +123,65 @@ describe('Database', () => {
         },
       ])
 
-      data = await db.entries(undefined, 2, 2)
+      data = await db.entries({ limit: 2, offset: 2 })
       expect(data).toEqual([
         {
           id: uuids[2],
           value: 'power',
+        },
+      ])
+    })
+  })
+
+  describe('index entries', () => {
+    // WIP
+    // let uuids: string[]
+    // beforeAll(async () => {
+    //   uuids = [uuidv4(), uuidv4(), uuidv4(), uuidv4()]
+    //   await db.set(uuids[0], 'bar')
+    //   await db.set(uuids[1], 'qux')
+    //   await db.set(uuids[2], 'power')
+    // })
+  })
+
+  describe.only('index and query entries', () => {
+    let uuids: string[]
+
+    beforeAll(async () => {
+      uuids = [uuidv4(), uuidv4(), uuidv4(), uuidv4(), uuidv4(), uuidv4()]
+      await db.set(uuids[0], 'foo', ['foo'])
+      await db.set(uuids[1], 'bar', ['foo/bar'])
+      await db.set(uuids[2], 'baz', ['foo/bar/baz'])
+      await db.set(uuids[3], 'baz 1', ['foo/bar/baz', '1'])
+      await db.set(uuids[3], 'bar 2', ['foo/bar', '1/2'])
+    })
+
+    afterAll(async () => {
+      await db.clear()
+    })
+
+    it('should be able to query all entries', async () => {
+      const data = await db.entries()
+      expect(data).toEqual([
+        {
+          id: uuids[0],
+          value: 'foo',
+        },
+        {
+          id: uuids[1],
+          value: 'bar',
+        },
+        {
+          id: uuids[2],
+          value: 'baz',
+        },
+        {
+          id: uuids[3],
+          value: 'baz 1',
+        },
+        {
+          id: uuids[4],
+          value: 'bar 2',
         },
       ])
     })

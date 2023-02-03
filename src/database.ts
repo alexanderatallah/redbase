@@ -6,6 +6,7 @@ const DEBUG = process.env['DEBUG'] === 'true'
 export interface Options {
   defaultExpiration?: number // Default expiration (in seconds) to use for each entry. Defaults to undefined
   indexPathSeparator?: string // Separator for nested indexes. Defaults to "/"
+  indexUnionSeparator?: string // Separator for union indexes. Defaults to "|"
 }
 
 export type OrderDirection = 'asc' | 'desc'
@@ -18,6 +19,16 @@ export type Index = {
 export type WithID<ValueT> = {
   id: string
   value: ValueT
+}
+
+interface EntriesQuery {
+  where?: {
+    AND?: string[]
+    OR?: string[]
+  }
+  limit?: number
+  offset?: number
+  ordering?: OrderDirection
 }
 
 /**
@@ -48,11 +59,13 @@ class Database<ValueT> {
   // Private, since changing this after initialization will break things
   private _name: string
   private _indexPathSeparator: string
+  private _indexUnionSeparator: string
 
   constructor(name: string, opts: Options = {}) {
     this.exp = opts.defaultExpiration
     this._name = name
     this._indexPathSeparator = opts.indexPathSeparator || '/'
+    this._indexUnionSeparator = opts.indexUnionSeparator || '|'
   }
 
   public get name() {
@@ -82,7 +95,7 @@ class Database<ValueT> {
     }
 
     const score = sortBy ? sortBy(value) : new Date().getTime()
-    const indexes = indexNames.map(p => this._getIndexHierarchy(p))
+    const indexes = indexNames.map(p => this._nameToIndex(p))
 
     let txn = redis.multi().set(this._entryKey(id), JSON.stringify(value))
 
@@ -103,7 +116,7 @@ class Database<ValueT> {
       console.log('DELETING ' + (indexPath || 'ALL'))
     }
 
-    const index = this._getIndexHierarchy(indexPath || '')
+    const index = this._nameToIndex(indexPath || '')
     const ids = await redis.zrange(this._indexKey(index), 0, -1)
 
     // Pipeline multple calls to delete above
@@ -117,15 +130,25 @@ class Database<ValueT> {
     return Promise.all([...deletions, indexMultiDeletion])
   }
 
-  async entries(
-    indexPath?: string | undefined,
+  async entries({
+    where: { AND = [], OR = [] } = {},
     offset = 0,
     limit = 20,
-    ordering: OrderDirection = 'asc'
-  ): Promise<WithID<ValueT>[]> {
-    const index = this._getIndexHierarchy(indexPath || '')
+    ordering = 'asc',
+  }: EntriesQuery = {}): Promise<WithID<ValueT>[]> {
+    const indexNames = AND.concat(OR)
+
+    const indexKey = async () => {
+      if (indexNames.length === 0) {
+        return this._indexKey(this._nameToIndex(''))
+      }
+      if (indexNames.length === 1) {
+        return this._indexKey(this._nameToIndex(indexNames[0]))
+      }
+    }
+
     const args: [string, number, number] = [
-      this._indexKey(index),
+      await indexKey(),
       offset,
       offset + limit - 1, // ZRANGE limits are inclusive
     ]
@@ -149,7 +172,7 @@ class Database<ValueT> {
     offset = 0,
     limit = 20
   ): Promise<string[]> {
-    const index = this._getIndexHierarchy(rootIndexName || '')
+    const index = this._nameToIndex(rootIndexName || '')
     return redis.zrange(this._indexChildrenKey(index), offset, offset + limit)
   }
 
@@ -158,7 +181,7 @@ class Database<ValueT> {
     min: number | '-inf' = '-inf',
     max: number | '+inf' = '+inf'
   ): Promise<number> {
-    const index = this._getIndexHierarchy(indexPath || '')
+    const index = this._nameToIndex(indexPath || '')
     return redis.zcount(this._indexKey(index), min, max)
   }
 
@@ -170,7 +193,7 @@ class Database<ValueT> {
       )
     }
     const indexPaths = await redis.smembers(indexKey)
-    const indexes = indexPaths.map(p => this._getIndexHierarchy(p))
+    const indexes = indexPaths.map(p => this._nameToIndex(p))
 
     // TODO Using unlink instead of del here doesn't seem to improve perf much
     let txn = redis.multi().unlink(this._entryKey(id)).unlink(indexKey)
@@ -233,7 +256,7 @@ class Database<ValueT> {
     return `${this._indexKey(index)}:children`
   }
 
-  _getIndexHierarchy(indexName: string): Index {
+  _nameToIndex(indexName: string): Index {
     // Input: "/a/b/c"
     // Output: ["", "/a", "/a/b", "/a/b/c"]
     // Invalid: "/", "/a/b/c/"
@@ -250,7 +273,7 @@ class Database<ValueT> {
       .join(this._indexPathSeparator)
     return {
       name: indexName,
-      parent: this._getIndexHierarchy(parentName),
+      parent: this._nameToIndex(parentName),
     }
   }
 
@@ -265,7 +288,7 @@ class Database<ValueT> {
     let ret = multi.del(this._indexKey(index))
     const childindexes = redis.zrange(this._indexChildrenKey(index), 0, -1)
     for (const child in childindexes) {
-      ret = this._recursiveIndexDeletion(ret, this._getIndexHierarchy(child))
+      ret = this._recursiveIndexDeletion(ret, this._nameToIndex(child))
     }
     return ret.del(this._indexChildrenKey(index))
   }
