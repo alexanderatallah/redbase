@@ -8,7 +8,8 @@ describe('Database', () => {
   let dbComplex: Database<ValueT>
 
   beforeAll(() => {
-    db = new Database<string>('Test')
+    // Use a low ttl to prevent stale indices between tests
+    db = new Database<string>('Test', { queryIndexTTL: 0.1 })
     dbComplex = new Database<ValueT>('TestComplex')
   })
 
@@ -30,8 +31,14 @@ describe('Database', () => {
     })
   })
 
-  describe('single get/set/del', () => {
-    let uuid: string
+  describe('simple get/save/delete/clear', () => {
+    let fooId: string
+
+    beforeEach(async () => {
+      fooId = uuidv4()
+      await db.save(fooId, 'foo')
+      await dbComplex.save(fooId, { answer: 'foo' })
+    })
 
     afterAll(async () => {
       await db.clear()
@@ -39,13 +46,14 @@ describe('Database', () => {
     })
 
     it('should be able to set values', async () => {
-      uuid = uuidv4()
-      await db.set(uuid, 'bar')
+      const uuid = uuidv4()
+      await db.save(uuid, 'bar')
       expect(await db.get(uuid)).toBe('bar')
 
-      await dbComplex.set(uuid, { answer: 'bar' })
+      await dbComplex.save(uuid, { answer: 'bar', optional: [1, 2, 3] })
       expect(await dbComplex.get(uuid)).toEqual({
         answer: 'bar',
+        optional: [1, 2, 3],
       })
     })
 
@@ -55,11 +63,22 @@ describe('Database', () => {
     })
 
     it('should be able to delete entries', async () => {
-      await db.del(uuid)
+      await db.delete(fooId)
+      expect(await db.get(fooId)).toBe(undefined)
+
+      await dbComplex.delete(fooId)
+      expect(await dbComplex.get(fooId)).toBe(undefined)
+    })
+
+    it('should be able to clear the database', async () => {
+      const uuid = uuidv4()
+      await db.save(uuid, 'bar')
+      await db.clear()
+      expect(await db.get(fooId)).toBe(undefined)
       expect(await db.get(uuid)).toBe(undefined)
 
-      await dbComplex.del(uuid)
-      expect(await dbComplex.get(uuid)).toBe(undefined)
+      await dbComplex.clear()
+      expect(await dbComplex.get(fooId)).toBe(undefined)
     })
   })
 
@@ -67,14 +86,14 @@ describe('Database', () => {
     let uuids: string[]
 
     beforeAll(async () => {
-      uuids = [uuidv4(), uuidv4(), uuidv4(), uuidv4()]
-      await db.set(uuids[0], 'bar')
-      // Wait 10ms prevent pipelining
+      uuids = Array.from({ length: 4 }, () => uuidv4())
+      await db.save(uuids[0], 'bar')
+      // Wait 10ms prevent pipelining (causes issues with ordering)
       await new Promise(resolve => setTimeout(resolve, 10))
-      await db.set(uuids[1], 'qux')
+      await db.save(uuids[1], 'qux')
       await new Promise(resolve => setTimeout(resolve, 10))
-      await db.set(uuids[2], 'power')
-      await dbComplex.set(uuids[3], { answer: 'bar' })
+      await db.save(uuids[2], 'power')
+      await dbComplex.save(uuids[3], { answer: 'bar' })
     })
 
     afterAll(async () => {
@@ -83,7 +102,7 @@ describe('Database', () => {
     })
 
     it('should be able to list entries', async () => {
-      const data = await db.entries()
+      const data = await db.filter()
       expect(data).toEqual([
         {
           id: uuids[0],
@@ -99,7 +118,7 @@ describe('Database', () => {
         },
       ])
 
-      const complexData = await dbComplex.entries()
+      const complexData = await dbComplex.filter()
       expect(complexData).toEqual([
         {
           id: uuids[3],
@@ -109,7 +128,7 @@ describe('Database', () => {
     })
 
     it('should be able to reverse entries', async () => {
-      const data = await db.entries({ ordering: 'desc' })
+      const data = await db.filter({ ordering: 'desc' })
       expect(data).toEqual([
         {
           id: uuids[2],
@@ -132,7 +151,7 @@ describe('Database', () => {
     })
 
     it('should be able to paginate entries', async () => {
-      let data = await db.entries({ limit: 2 })
+      let data = await db.filter({ limit: 2 })
       expect(data).toEqual([
         {
           id: uuids[0],
@@ -144,7 +163,7 @@ describe('Database', () => {
         },
       ])
 
-      data = await db.entries({ limit: 2, offset: 2 })
+      data = await db.filter({ limit: 2, offset: 2 })
       expect(data).toEqual([
         {
           id: uuids[2],
@@ -154,24 +173,75 @@ describe('Database', () => {
     })
   })
 
-  describe.skip('index hierarchical entries', () => {
-    // WIP
-    // let uuids: string[]
-    // beforeAll(async () => {
-    //   uuids = [uuidv4(), uuidv4(), uuidv4(), uuidv4()]
-    //   await db.set(uuids[0], 'bar')
-    //   await db.set(uuids[1], 'qux')
-    //   await db.set(uuids[2], 'power')
-    // })
-  })
-
-  describe('index and query entries', () => {
+  describe('index hierarchical entries', () => {
     let uuids: string[]
 
     beforeAll(async () => {
-      uuids = [uuidv4(), uuidv4(), uuidv4(), uuidv4(), uuidv4(), uuidv4()]
+      uuids = Array.from({ length: 4 }, () => uuidv4())
+      await db.save(uuids[0], 'foo', ['foo', '1'])
+      await new Promise(resolve => setTimeout(resolve, 10))
+      await db.save(uuids[1], 'bar', ['bar', '1'])
+      await new Promise(resolve => setTimeout(resolve, 10))
+      await db.save(uuids[2], 'foobar', ['foo/bar', '2'])
+    })
+
+    afterAll(async () => {
+      await db.clear()
+      await dbComplex.clear()
+    })
+
+    it('should be able to filter entries by index', async () => {
+      const data = await db.filter({ where: { AND: ['foo'] } })
+      expect(data).toEqual([
+        {
+          id: uuids[0],
+          value: 'foo',
+        },
+        {
+          id: uuids[2],
+          value: 'foobar',
+        },
+      ])
+
+      const data2 = await db.filter({ where: { AND: ['bar'] } })
+      expect(data2).toEqual([
+        {
+          id: uuids[1],
+          value: 'bar',
+        },
+      ])
+    })
+
+    it('should clear along an index', async () => {
+      await db.clear('foo')
+      const data = await db.filter()
+      expect(data).toEqual([
+        {
+          id: uuids[1],
+          value: 'bar',
+        },
+      ])
+    })
+
+    it('should clear indexes as well as entries', async () => {
+      await db.clear('foo')
+      await db.save(uuids[0], 'foo', [])
+      const data = await db.filter({ where: { AND: ['foo'] } })
+      expect(data).toEqual([])
+
+      await db.clear()
+      const data2 = await db.filter({ where: { AND: ['bar'] } })
+      expect(data2).toEqual([])
+    })
+  })
+
+  describe('index and filter entries', () => {
+    let uuids: string[]
+
+    beforeAll(async () => {
+      uuids = Array.from({ length: 6 }).map(() => uuidv4())
       for (let i = 0; i < uuids.length; i++) {
-        await db.set(uuids[i], `key ${i}`, [`mod3_${i % 3}`, `mod2_${i % 2}`])
+        await db.save(uuids[i], `key ${i}`, [`mod3_${i % 3}`, `mod2_${i % 2}`])
         // Wait 10ms prevent pipelining
         await new Promise(resolve => setTimeout(resolve, 10))
       }
@@ -181,8 +251,8 @@ describe('Database', () => {
       await db.clear()
     })
 
-    it('should be able to query all entries', async () => {
-      const data = await db.entries()
+    it('should be able to filter all entries', async () => {
+      const data = await db.filter()
       expect(data).toStrictEqual([
         {
           id: uuids[0],
@@ -211,8 +281,8 @@ describe('Database', () => {
       ])
     })
 
-    it('should be able to query individual indexes', async () => {
-      const data = await db.entries({ where: { AND: ['mod3_0'] } })
+    it('should be able to filter by individual indexes', async () => {
+      const data = await db.filter({ where: { AND: ['mod3_0'] } })
       expect(data).toStrictEqual([
         {
           id: uuids[0],
@@ -224,7 +294,7 @@ describe('Database', () => {
         },
       ])
 
-      const data2 = await db.entries({ where: { AND: ['mod2_0'] } })
+      const data2 = await db.filter({ where: { AND: ['mod2_0'] } })
       expect(data2).toStrictEqual([
         {
           id: uuids[0],
@@ -242,7 +312,7 @@ describe('Database', () => {
     })
 
     it('should be able to query union indexes', async () => {
-      const data = await db.entries({ where: { OR: ['mod2_0', 'mod3_0'] } })
+      const data = await db.filter({ where: { OR: ['mod2_0', 'mod3_0'] } })
       expect(data).toStrictEqual([
         {
           id: uuids[0],
@@ -264,7 +334,7 @@ describe('Database', () => {
     })
 
     it('should be able to query intersection indexes', async () => {
-      const data = await db.entries({ where: { AND: ['mod3_0', 'mod2_0'] } })
+      const data = await db.filter({ where: { AND: ['mod3_0', 'mod2_0'] } })
       expect(data).toStrictEqual([
         {
           id: uuids[0],
@@ -274,7 +344,7 @@ describe('Database', () => {
     })
 
     it('should be able to query intersection and union indexes', async () => {
-      const data = await db.entries({
+      const data = await db.filter({
         where: {
           AND: ['mod2_0'],
           OR: ['mod3_0', 'mod3_1'],
@@ -291,13 +361,61 @@ describe('Database', () => {
         },
       ])
 
-      const data2 = await db.entries({
+      const data2 = await db.filter({
         where: {
           AND: ['mod2_0', 'mod2_1'],
           OR: ['mod3_0', 'mod3_1', 'mod3_2'],
         },
       })
       expect(data2).toStrictEqual([])
+    })
+  })
+
+  describe('indexes() for filtering indexes', () => {
+    let uuids: string[]
+
+    beforeAll(async () => {
+      uuids = Array.from({ length: 6 }).map(() => uuidv4())
+      for (let i = 0; i < uuids.length; i++) {
+        await db.save(uuids[i], `key ${i}`, [
+          `math/mod2_${i % 2}`,
+          `even/${(i % 2 === 0).toString()}`,
+        ])
+        // Wait 10ms prevent pipelining
+        await new Promise(resolve => setTimeout(resolve, 10))
+      }
+    })
+
+    afterAll(async () => {
+      await db.clear()
+    })
+
+    it('should be able to list all indexes', async () => {
+      const data = await db.indexes()
+      expect(data).toStrictEqual(['even', 'math'])
+    })
+
+    it('should be able to filter down hierarchical indexes', async () => {
+      const data = await db.indexes({ where: { OR: ['even'] } })
+      expect(data).toEqual(['even/false', 'even/true'])
+
+      const data2 = await db.indexes({ where: { OR: ['even/true'] } })
+      expect(data2).toEqual([])
+
+      const data3 = await db.indexes({ where: { OR: ['math'] } })
+      expect(data3).toEqual(['math/mod2_0', 'math/mod2_1'])
+    })
+
+    it('should be able to query union indexes', async () => {
+      const data = await db.indexes({
+        where: { OR: ['math', 'even'] },
+      })
+      expect(data).toEqual([
+        'even/false',
+        'even/true',
+        'math/mod2_0',
+        'math/mod2_1',
+      ])
     })
   })
 })

@@ -23,13 +23,22 @@ export type WithID<ValueT> = {
   value: ValueT
 }
 
-type QueryWhere = {
+type EntriesQueryWhere = {
   AND?: string[]
   OR?: string[]
 }
 
-interface EntriesQuery {
-  where?: QueryWhere
+type IndexesQueryWhere = Omit<EntriesQueryWhere, 'AND'>
+
+interface EntryQueryParams {
+  where?: EntriesQueryWhere
+  limit?: number
+  offset?: number
+  ordering?: OrderDirection
+}
+
+interface IndexQueryParams {
+  where?: IndexesQueryWhere
   limit?: number
   offset?: number
   ordering?: OrderDirection
@@ -90,7 +99,7 @@ class Database<ValueT> {
     return parsed
   }
 
-  async set(
+  async save(
     id: string,
     value: ValueT,
     indexNames?: string | string[],
@@ -106,7 +115,7 @@ class Database<ValueT> {
     let txn = redis.multi().set(this._entryKey(id), JSON.stringify(value))
 
     for (const index of indexes) {
-      txn = this._updateIndex(txn, index, id, score)
+      txn = this._indexEntry(txn, index, id, score)
     }
 
     // Set expiration
@@ -126,7 +135,7 @@ class Database<ValueT> {
     const ids = await redis.zrange(this._indexKey(index), 0, -1)
 
     // Pipeline multple calls to delete above
-    const deletions = ids.map(id => this.del(id))
+    const deletions = ids.map(id => this.delete(id))
     // Also delete the index itself and all children
     const indexMultiDeletion = this._recursiveIndexDeletion(
       redis.multi(),
@@ -136,13 +145,13 @@ class Database<ValueT> {
     return Promise.all([...deletions, indexMultiDeletion])
   }
 
-  async entries({
+  async filter({
     where = {},
     offset = 0,
     limit = 20,
     ordering = 'asc',
-  }: EntriesQuery = {}): Promise<WithID<ValueT>[]> {
-    const computedIndex = await this._getOrCreateQueryIndex(where)
+  }: EntryQueryParams = {}): Promise<WithID<ValueT>[]> {
+    const computedIndex = await this._getOrCreateEntriesQuery(where)
     const args: [string, number, number] = [
       this._indexKey(computedIndex),
       offset,
@@ -163,13 +172,24 @@ class Database<ValueT> {
       .filter((maybeVal): maybeVal is WithID<ValueT> => !!maybeVal)
   }
 
-  async indexes(
-    rootIndexName?: string | undefined,
+  async indexes({
+    where = {},
     offset = 0,
-    limit = 20
-  ): Promise<string[]> {
-    const index = this._nameToIndex(rootIndexName || '')
-    return redis.zrange(this._indexChildrenKey(index), offset, offset + limit)
+    limit = 20,
+    ordering = 'asc',
+  }: IndexQueryParams = {}): Promise<string[]> {
+    // const index = this._nameToIndex(rootIndexName || '')
+    // return redis.zrange(this._indexChildrenKey(index), offset, offset + limit)
+    const computedIndex = await this._getOrCreateIndexesQuery(where)
+    const args: [string, number, number] = [
+      this._indexChildrenKey(computedIndex),
+      offset,
+      offset + limit - 1, // ZRANGE limits are inclusive
+    ]
+    if (ordering === 'desc') {
+      args.push('REV')
+    }
+    return redis.zrange(...args)
   }
 
   async count(
@@ -181,7 +201,7 @@ class Database<ValueT> {
     return redis.zcount(this._indexKey(index), min, max)
   }
 
-  async del(id: string): Promise<ExecT> {
+  async delete(id: string): Promise<ExecT> {
     const indexKey = this._entryIndexesKey(id)
     if (DEBUG) {
       console.log(
@@ -206,26 +226,26 @@ class Database<ValueT> {
     return txn.exec()
   }
 
-  _updateIndex(
+  _indexEntry(
     txn: ChainableCommander,
     index: Index,
-    id: string,
+    entryId: string,
     score: number
   ) {
     // Register this index under the entry
-    txn = txn.sadd(this._entryIndexesKey(id), index.name)
+    txn = txn.sadd(this._entryIndexesKey(entryId), index.name)
 
     // Traverse child hierarchy
     while (index.parent) {
       // Add the entry to this index
-      txn = txn.zadd(this._indexKey(index), score, id)
+      txn = txn.zadd(this._indexKey(index), score, entryId)
       // Register this index under its parent
       txn = txn.zadd(this._indexChildrenKey(index.parent), 0, index.name)
       // Move up the hierarchy
       index = index.parent
     }
     // We're at the root index now - add the entry to it as well
-    txn = txn.zadd(this._indexKey(index), score, id)
+    txn = txn.zadd(this._indexKey(index), score, entryId)
     return txn
   }
 
@@ -277,7 +297,7 @@ class Database<ValueT> {
     return !!x
   }
 
-  async _getOrCreateQueryIndex(where: QueryWhere): Promise<Index> {
+  async _getOrCreateEntriesQuery(where: EntriesQueryWhere): Promise<Index> {
     const allIndexNames = (where.AND || []).concat(where.OR || [])
     if (allIndexNames.length === 0) {
       // No indexes specified, so we'll use the root index
@@ -295,60 +315,82 @@ class Database<ValueT> {
       if (where.OR.length === 1) {
         throw new Error("Can't have a single index in an OR query")
       }
-      union = await this._getOrCreateUnionIndex(where.OR)
+      union = await this._getOrCreateIndex(where.OR, 'union')
     }
 
     if (where.AND?.length) {
       if (where.AND.length === 1) {
         intersection = this._nameToIndex(where.AND[0])
       } else {
-        intersection = await this._getOrCreateIntersectionIndex(where.AND)
+        intersection = await this._getOrCreateIndex(where.AND, 'intersection')
       }
     }
 
     if (union && intersection) {
-      return await this._getOrCreateIntersectionIndex([
-        union.name,
-        intersection.name,
-      ])
+      return await this._getOrCreateIndex(
+        [union.name, intersection.name],
+        'intersection'
+      )
     } else {
       // nameToIndex is unreachable, but here to evade a typescript bug
       return union || intersection || this._nameToIndex('')
     }
   }
 
-  async _getOrCreateUnionIndex(indexNames: string[]): Promise<Index> {
-    return this._getOrCreateIndex(indexNames, 'union')
-  }
+  async _getOrCreateIndexesQuery(where: IndexesQueryWhere): Promise<Index> {
+    if (!where.OR || where.OR.length === 0) {
+      // No indexes specified, so we'll use the root index
+      return this._nameToIndex('')
+    }
+    if (where.OR.length === 1) {
+      // Only one index specified, so we'll use that
+      return this._nameToIndex(where.OR[0])
+    }
 
-  async _getOrCreateIntersectionIndex(indexNames: string[]): Promise<Index> {
-    return this._getOrCreateIndex(indexNames, 'intersection')
+    const targetIndex = this._nameToIndex(where.OR.join('+'))
+    const txn = await this._createAggregateIndex(
+      this._indexChildrenKey(targetIndex),
+      where.OR.map(n => this._indexChildrenKey(this._nameToIndex(n))),
+      'union'
+    )
+    await txn.exec()
+    return targetIndex
   }
 
   async _getOrCreateIndex(
     indexNames: string[],
     type: 'union' | 'intersection'
-  ) {
-    const index = this._nameToIndex(
+  ): Promise<Index> {
+    const targetIndex = this._nameToIndex(
       indexNames.join(type === 'union' ? '+' : '&')
     )
-    if ((await redis.ttl(this._indexKey(index))) > QUERY_INDEX_TTL_BUFFER) {
-      return index
+    const txn = await this._createAggregateIndex(
+      this._indexKey(targetIndex),
+      indexNames.map(n => this._indexKey(this._nameToIndex(n))),
+      type
+    )
+    await txn.exec()
+    return targetIndex
+  }
+
+  async _createAggregateIndex(
+    targetIndexKey: string,
+    indexKeys: string[],
+    type: 'union' | 'intersection'
+  ): Promise<ChainableCommander> {
+    let txn = redis.multi()
+    if ((await redis.ttl(targetIndexKey)) > QUERY_INDEX_TTL_BUFFER) {
+      return txn
     }
     const methodName = type === 'union' ? 'zunionstore' : 'zinterstore'
-    const indexes = indexNames.map(n => this._nameToIndex(n))
-    const txn = redis
-      .multi()
-      [methodName](
-        this._indexKey(index),
-        indexes.length,
-        ...indexes.map(i => this._indexKey(i)),
-        'AGGREGATE',
-        'MIN'
-      )
-      .expire(this._indexKey(index), this.queryIndexTTL)
-    await txn.exec()
-    return index
+    txn = txn[methodName](
+      targetIndexKey,
+      indexKeys.length,
+      ...indexKeys,
+      'AGGREGATE',
+      'MIN'
+    ).expire(targetIndexKey, this.queryIndexTTL)
+    return txn
   }
 
   _recursiveIndexDeletion(

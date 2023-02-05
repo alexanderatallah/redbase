@@ -33,7 +33,7 @@ async function main() {
   if (!SKIP_INSERT) {
     // Insert
     await Promise.all(
-      randRows(INSERTION_BATCH).map(row => db.set(row.uuid, row))
+      randRows(INSERTION_BATCH).map(row => db.save(row.uuid, row))
     )
   }
 
@@ -43,7 +43,7 @@ async function main() {
     console.log('rowCount redis', rowCount)
 
     for (let i = 0; i < rowCount; i += SCROLL_BATCH) {
-      await db.entries({ offset: i, limit: SCROLL_BATCH })
+      await db.filter({ offset: i, limit: SCROLL_BATCH })
     }
   }
 
