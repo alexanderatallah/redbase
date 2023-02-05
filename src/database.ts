@@ -3,10 +3,12 @@ import { ChainableCommander } from 'ioredis'
 
 const GLOBAL_PREFIX = process.env['REDIS_PREFIX'] || ''
 const DEBUG = process.env['DEBUG'] === 'true'
+const QUERY_INDEX_TTL_BUFFER = 0.1 // seconds
 export interface Options {
   defaultExpiration?: number // Default expiration (in seconds) to use for each entry. Defaults to undefined
   indexPathSeparator?: string // Separator for nested indexes. Defaults to "/"
   indexUnionSeparator?: string // Separator for union indexes. Defaults to "|"
+  queryIndexTTL?: number // TTL for computed query indexes. Defaults to 10 seconds
 }
 
 export type OrderDirection = 'asc' | 'desc'
@@ -21,11 +23,13 @@ export type WithID<ValueT> = {
   value: ValueT
 }
 
+type QueryWhere = {
+  AND?: string[]
+  OR?: string[]
+}
+
 interface EntriesQuery {
-  where?: {
-    AND?: string[]
-    OR?: string[]
-  }
+  where?: QueryWhere
   limit?: number
   offset?: number
   ordering?: OrderDirection
@@ -55,6 +59,7 @@ interface EntriesQuery {
 
 class Database<ValueT> {
   public exp: number | undefined
+  public queryIndexTTL: number
 
   // Private, since changing this after initialization will break things
   private _name: string
@@ -66,6 +71,7 @@ class Database<ValueT> {
     this._name = name
     this._indexPathSeparator = opts.indexPathSeparator || '/'
     this._indexUnionSeparator = opts.indexUnionSeparator || '|'
+    this.queryIndexTTL = opts.queryIndexTTL || 10 // seconds
   }
 
   public get name() {
@@ -131,24 +137,14 @@ class Database<ValueT> {
   }
 
   async entries({
-    where: { AND = [], OR = [] } = {},
+    where = {},
     offset = 0,
     limit = 20,
     ordering = 'asc',
   }: EntriesQuery = {}): Promise<WithID<ValueT>[]> {
-    const indexNames = AND.concat(OR)
-
-    const indexKey = async () => {
-      if (indexNames.length === 0) {
-        return this._indexKey(this._nameToIndex(''))
-      }
-      if (indexNames.length === 1) {
-        return this._indexKey(this._nameToIndex(indexNames[0]))
-      }
-    }
-
+    const computedIndex = await this._getOrCreateQueryIndex(where)
     const args: [string, number, number] = [
-      await indexKey(),
+      this._indexKey(computedIndex),
       offset,
       offset + limit - 1, // ZRANGE limits are inclusive
     ]
@@ -279,6 +275,80 @@ class Database<ValueT> {
 
   _isValue(x: ValueT | null | undefined): x is ValueT {
     return !!x
+  }
+
+  async _getOrCreateQueryIndex(where: QueryWhere): Promise<Index> {
+    const allIndexNames = (where.AND || []).concat(where.OR || [])
+    if (allIndexNames.length === 0) {
+      // No indexes specified, so we'll use the root index
+      return this._nameToIndex('')
+    }
+    if (allIndexNames.length === 1) {
+      // Only one index specified, so we'll use that
+      return this._nameToIndex(allIndexNames[0])
+    }
+
+    // Starting with where.OR, create a union index
+    let union: Index | undefined, intersection: Index | undefined
+
+    if (where.OR?.length) {
+      if (where.OR.length === 1) {
+        throw new Error("Can't have a single index in an OR query")
+      }
+      union = await this._getOrCreateUnionIndex(where.OR)
+    }
+
+    if (where.AND?.length) {
+      if (where.AND.length === 1) {
+        intersection = this._nameToIndex(where.AND[0])
+      } else {
+        intersection = await this._getOrCreateIntersectionIndex(where.AND)
+      }
+    }
+
+    if (union && intersection) {
+      return await this._getOrCreateIntersectionIndex([
+        union.name,
+        intersection.name,
+      ])
+    } else {
+      // nameToIndex is unreachable, but here to evade a typescript bug
+      return union || intersection || this._nameToIndex('')
+    }
+  }
+
+  async _getOrCreateUnionIndex(indexNames: string[]): Promise<Index> {
+    return this._getOrCreateIndex(indexNames, 'union')
+  }
+
+  async _getOrCreateIntersectionIndex(indexNames: string[]): Promise<Index> {
+    return this._getOrCreateIndex(indexNames, 'intersection')
+  }
+
+  async _getOrCreateIndex(
+    indexNames: string[],
+    type: 'union' | 'intersection'
+  ) {
+    const index = this._nameToIndex(
+      indexNames.join(type === 'union' ? '+' : '&')
+    )
+    if ((await redis.ttl(this._indexKey(index))) > QUERY_INDEX_TTL_BUFFER) {
+      return index
+    }
+    const methodName = type === 'union' ? 'zunionstore' : 'zinterstore'
+    const indexes = indexNames.map(n => this._nameToIndex(n))
+    const txn = redis
+      .multi()
+      [methodName](
+        this._indexKey(index),
+        indexes.length,
+        ...indexes.map(i => this._indexKey(i)),
+        'AGGREGATE',
+        'MIN'
+      )
+      .expire(this._indexKey(index), this.queryIndexTTL)
+    await txn.exec()
+    return index
   }
 
   _recursiveIndexDeletion(

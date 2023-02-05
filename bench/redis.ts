@@ -43,7 +43,7 @@ async function main() {
     console.log('rowCount redis', rowCount)
 
     for (let i = 0; i < rowCount; i += SCROLL_BATCH) {
-      await db.entries(undefined, i, SCROLL_BATCH)
+      await db.entries({ offset: i, limit: SCROLL_BATCH })
     }
   }
 
