@@ -8,6 +8,7 @@ import {
   DO_SCROLL,
   DO_DELETE,
   DO_SETUP,
+  SCROLL_INDEXED,
   SCROLL_MULTIINDEXED,
 } from './shared'
 
@@ -68,7 +69,11 @@ async function main() {
   }
 
   if (DO_SCROLL) {
-    const where = SCROLL_MULTIINDEXED ? 'WHERE projectId=1 or categoryId=1' : ''
+    const where = SCROLL_MULTIINDEXED
+      ? 'WHERE projectId=1 or categoryId=1'
+      : SCROLL_INDEXED
+      ? 'WHERE categoryId=1'
+      : ''
     // Paginate
     const rowCount = await client.query(`
       SELECT COUNT(*) FROM fake_rows ${where};

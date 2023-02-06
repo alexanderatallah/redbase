@@ -7,6 +7,7 @@ export const DO_INSERT = args.includes('DO_INSERT')
 export const DO_SCROLL = args.includes('DO_SCROLL')
 export const DO_DELETE = args.includes('DO_DELETE')
 export const DO_SETUP = args.includes('DO_SETUP')
+export const SCROLL_INDEXED = args.includes('SCROLL_INDEXED')
 export const SCROLL_MULTIINDEXED = args.includes('SCROLL_MULTIINDEXED')
 export const INSERTION_BATCH = 50_000 // Increasing this slows down Postgres
 export const SCROLL_BATCH = 500

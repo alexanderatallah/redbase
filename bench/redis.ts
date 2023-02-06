@@ -8,6 +8,7 @@ import {
   DO_SCROLL,
   DO_DELETE,
   DO_SETUP,
+  SCROLL_INDEXED,
   SCROLL_MULTIINDEXED,
 } from './shared'
 
@@ -47,6 +48,8 @@ async function main() {
   if (DO_SCROLL) {
     const where = SCROLL_MULTIINDEXED
       ? { OR: ['projectId-1', 'categoryId-1'] }
+      : SCROLL_INDEXED
+      ? 'categoryId-1'
       : {}
     // Paginate
     const rowCount = await db.count({ where })
