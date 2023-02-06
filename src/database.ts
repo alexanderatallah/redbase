@@ -143,7 +143,7 @@ class Database<ValueT> {
     return txn.exec()
   }
 
-  async clear({ where = '' }: ClearParams = {}): Promise<void> {
+  async clear({ where = '' }: ClearParams = {}): Promise<number> {
     const count = await this.count({ where })
     if (DEBUG) {
       console.log(`DELETING ${count} from ${where || 'ALL'}`)
@@ -178,6 +178,7 @@ class Database<ValueT> {
     }
 
     await txn.exec()
+    return count
   }
 
   async filter({

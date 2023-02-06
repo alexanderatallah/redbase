@@ -19,7 +19,8 @@ async function setupRedis(db: Database<FakeRow>) {
     redis.config('SET', 'appendfsync', 'always'),
   ])
 
-  await db.clear()
+  const deletions = await db.clear()
+  console.log('Deleted from redis: ', deletions)
 }
 
 async function main() {
