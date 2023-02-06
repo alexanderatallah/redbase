@@ -9,6 +9,7 @@ export interface Options {
   indexPathSeparator?: string // Separator for nested indexes. Defaults to "/"
   indexUnionSeparator?: string // Separator for union indexes. Defaults to "|"
   queryIndexTTL?: number // TTL for computed query indexes. Defaults to 10 seconds
+  deletionPageSize?: number // Number of entries to delete at a time when calling "clear". Defaults to 2000.
 }
 
 export type OrderDirection = 'asc' | 'desc'
@@ -46,8 +47,12 @@ interface IndexQueryParams {
 
 interface CountParams {
   where?: EntriesQueryWhere | string
-  min?: number | '-inf'
-  max?: number | '+inf'
+  scoreMin?: number | '-inf'
+  scoreMax?: number | '+inf'
+}
+
+interface ClearParams {
+  where?: EntriesQueryWhere | string
 }
 
 interface SaveParams<ValueT> {
@@ -80,6 +85,7 @@ interface SaveParams<ValueT> {
 class Database<ValueT> {
   public exp: number | undefined
   public queryIndexTTL: number
+  public deletionPageSize: number
 
   // Private, since changing this after initialization will break things
   private _name: string
@@ -88,6 +94,7 @@ class Database<ValueT> {
 
   constructor(name: string, opts: Options = {}) {
     this.exp = opts.defaultExpiration
+    this.deletionPageSize = opts.deletionPageSize || 2000
     this._name = name
     this._indexPathSeparator = opts.indexPathSeparator || '/'
     this._indexUnionSeparator = opts.indexUnionSeparator || '|'
@@ -136,44 +143,50 @@ class Database<ValueT> {
     return txn.exec()
   }
 
-  async clear(indexName?: string): Promise<ExecT[]> {
+  async clear({ where = '' }: ClearParams = {}): Promise<void> {
+    const count = await this.count({ where })
     if (DEBUG) {
-      console.log('DELETING ' + (indexName || 'ALL'))
+      console.log(`DELETING ${count} from ${where || 'ALL'}`)
     }
 
-    const index = this._nameToIndex(indexName || '')
-    const ids = await redis.zrange(this._indexKey(index), 0, -1)
+    for (let offset = 0; offset < count; offset += this.deletionPageSize) {
+      const ids = await this._queryIds({
+        where,
+        offset,
+        limit: this.deletionPageSize,
+        ordering: 'asc',
+      })
+      await Promise.all(ids.map(id => this.delete(id)))
+    }
 
-    // Pipeline multple calls to delete above
-    const deletions = ids.map(id => this.delete(id))
-    // Also delete the index itself and all children
-    const indexMultiDeletion = this._recursiveIndexDeletion(
-      redis.multi(),
-      index
-    ).exec()
+    // Also delete the index itself and all children, if there are no possible entries left
+    // TODO add tests
+    const indexNamesToDelete: string[] =
+      typeof where === 'string'
+        ? [where]
+        : where.AND?.length && where.OR?.length
+        ? [] // Possible entries left
+        : !where.AND?.length
+        ? where.OR || []
+        : where.AND.length === 1
+        ? where.AND
+        : [] // Possible entries left
 
-    return Promise.all([...deletions, indexMultiDeletion])
+    let txn = redis.multi()
+    for (const indexName of indexNamesToDelete) {
+      txn = this._recursiveIndexDeletion(txn, this._nameToIndex(indexName))
+    }
+
+    await txn.exec()
   }
 
   async filter({
-    where = {},
+    where = '',
     offset = 0,
     limit = 20,
     ordering = 'asc',
   }: EntryQueryParams = {}): Promise<WithID<ValueT>[]> {
-    const computedIndex =
-      typeof where === 'string'
-        ? this._nameToIndex(where)
-        : await this._getOrCreateEntriesQuery(where)
-    const args: [string, number, number] = [
-      this._indexKey(computedIndex),
-      offset,
-      offset + limit - 1, // ZRANGE limits are inclusive
-    ]
-    if (ordering === 'desc') {
-      args.push('REV')
-    }
-    const ids = await redis.zrange(...args)
+    const ids = await this._queryIds({ where, offset, limit, ordering })
     const values = await Promise.all(ids.map(h => this._getRawValue(h)))
     return values
       .map((o, i) => {
@@ -186,7 +199,7 @@ class Database<ValueT> {
   }
 
   async indexes({
-    where = {},
+    where = '',
     offset = 0,
     limit = 20,
     ordering = 'asc',
@@ -209,15 +222,15 @@ class Database<ValueT> {
   }
 
   async count({
-    where = {},
-    min = '-inf',
-    max = '+inf',
+    where = '',
+    scoreMin = '-inf',
+    scoreMax = '+inf',
   }: CountParams = {}): Promise<number> {
     const computedIndex =
       typeof where === 'string'
         ? this._nameToIndex(where)
         : await this._getOrCreateEntriesQuery(where)
-    return redis.zcount(this._indexKey(computedIndex), min, max)
+    return redis.zcount(this._indexKey(computedIndex), scoreMin, scoreMax)
   }
 
   async delete(id: string): Promise<ExecT> {
@@ -231,7 +244,8 @@ class Database<ValueT> {
     const indexes = indexPaths.map(p => this._nameToIndex(p))
 
     // TODO Using unlink instead of del here doesn't seem to improve perf much
-    let txn = redis.multi().unlink(this._entryKey(id)).unlink(indexKey)
+    let txn = redis.multi()
+    txn = txn.del(this._entryKey(id))
 
     for (let index of indexes) {
       // Traverse child hierarchy
@@ -242,7 +256,30 @@ class Database<ValueT> {
       // Root. Note that there might be duplicate zrem calls for shared parents, esp root
       txn = txn.zrem(this._indexKey(index), id)
     }
+
+    txn = txn.del(indexKey)
     return txn.exec()
+  }
+
+  async _queryIds({
+    where,
+    offset,
+    limit,
+    ordering,
+  }: Required<EntryQueryParams>): Promise<string[]> {
+    const computedIndex =
+      typeof where === 'string'
+        ? this._nameToIndex(where)
+        : await this._getOrCreateEntriesQuery(where)
+    const args: [string, number, number] = [
+      this._indexKey(computedIndex),
+      offset,
+      offset + limit - 1, // ZRANGE limits are inclusive
+    ]
+    if (ordering === 'desc') {
+      args.push('REV')
+    }
+    return redis.zrange(...args)
   }
 
   _indexEntry(

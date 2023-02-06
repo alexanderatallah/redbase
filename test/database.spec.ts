@@ -221,7 +221,7 @@ describe('Database', () => {
     })
 
     it('should clear along an index', async () => {
-      await db.clear('foo')
+      await db.clear({ where: 'foo' })
       const data = await db.filter()
       expect(data).toEqual([
         {
@@ -232,7 +232,7 @@ describe('Database', () => {
     })
 
     it('should clear indexes as well as entries', async () => {
-      await db.clear('foo')
+      await db.clear({ where: 'foo' })
       await db.save(uuids[0], 'foo')
       const data = await db.filter({ where: { AND: ['foo'] } })
       expect(data).toEqual([])

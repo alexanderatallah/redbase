@@ -8,6 +8,7 @@ A simple, fast, type-safe database on top of Redis.
 - Small: only \_\_\_ lines
 - Zero npm dependencies (works with `redis`, `node-redis` and `ioredis`)
 - Only core Redis - no dependencies on Redis modules (useful for deploying on platforms like Upstash).
+- Never calls "KEYS" on your redis instance
 
 ### Use cases
 
