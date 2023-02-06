@@ -178,11 +178,11 @@ describe('Database', () => {
 
     beforeAll(async () => {
       uuids = Array.from({ length: 4 }, () => uuidv4())
-      await db.save(uuids[0], 'foo', ['foo', '1'])
+      await db.save(uuids[0], 'foo', { indexUnder: ['foo', '1'] })
       await new Promise(resolve => setTimeout(resolve, 10))
-      await db.save(uuids[1], 'bar', ['bar', '1'])
+      await db.save(uuids[1], 'bar', { indexUnder: ['bar', '1'] })
       await new Promise(resolve => setTimeout(resolve, 10))
-      await db.save(uuids[2], 'foobar', ['foo/bar', '2'])
+      await db.save(uuids[2], 'foobar', { indexUnder: ['foo/bar', '2'] })
     })
 
     afterAll(async () => {
@@ -233,7 +233,7 @@ describe('Database', () => {
 
     it('should clear indexes as well as entries', async () => {
       await db.clear('foo')
-      await db.save(uuids[0], 'foo', [])
+      await db.save(uuids[0], 'foo')
       const data = await db.filter({ where: { AND: ['foo'] } })
       expect(data).toEqual([])
 
@@ -249,7 +249,9 @@ describe('Database', () => {
     beforeAll(async () => {
       uuids = Array.from({ length: 6 }).map(() => uuidv4())
       for (let i = 0; i < uuids.length; i++) {
-        await db.save(uuids[i], `key ${i}`, [`mod3_${i % 3}`, `mod2_${i % 2}`])
+        await db.save(uuids[i], `key ${i}`, {
+          indexUnder: [`mod3_${i % 3}`, `mod2_${i % 2}`],
+        })
         // Wait 10ms prevent pipelining
         await new Promise(resolve => setTimeout(resolve, 10))
       }
@@ -413,10 +415,12 @@ describe('Database', () => {
     beforeAll(async () => {
       uuids = Array.from({ length: 6 }).map(() => uuidv4())
       for (let i = 0; i < uuids.length; i++) {
-        await db.save(uuids[i], `key ${i}`, [
-          `math/mod2_${i % 2}`,
-          `even/${(i % 2 === 0).toString()}`,
-        ])
+        await db.save(uuids[i], `key ${i}`, {
+          indexUnder: [
+            `math/mod2_${i % 2}`,
+            `even/${(i % 2 === 0).toString()}`,
+          ],
+        })
         // Wait 10ms prevent pipelining
         await new Promise(resolve => setTimeout(resolve, 10))
       }

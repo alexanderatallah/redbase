@@ -31,23 +31,28 @@ type EntriesQueryWhere = {
 type IndexesQueryWhere = Omit<EntriesQueryWhere, 'AND'>
 
 interface EntryQueryParams {
-  where?: EntriesQueryWhere
+  where?: EntriesQueryWhere | string
   limit?: number
   offset?: number
   ordering?: OrderDirection
 }
 
 interface IndexQueryParams {
-  where?: IndexesQueryWhere
+  where?: IndexesQueryWhere | string
   limit?: number
   offset?: number
   ordering?: OrderDirection
 }
 
 interface CountParams {
-  where?: EntriesQueryWhere
+  where?: EntriesQueryWhere | string
   min?: number | '-inf'
   max?: number | '+inf'
+}
+
+interface SaveParams<ValueT> {
+  indexUnder?: string | string[]
+  sortBy?: (v: ValueT) => number
 }
 
 /**
@@ -108,15 +113,14 @@ class Database<ValueT> {
   async save(
     id: string,
     value: ValueT,
-    indexNames?: string | string[],
-    sortBy?: (val: ValueT) => number
+    { indexUnder, sortBy }: SaveParams<ValueT> = {}
   ): Promise<ExecT> {
-    if (!Array.isArray(indexNames)) {
-      indexNames = [indexNames || '']
+    if (!Array.isArray(indexUnder)) {
+      indexUnder = [indexUnder || '']
     }
 
     const score = sortBy ? sortBy(value) : new Date().getTime()
-    const indexes = indexNames.map(p => this._nameToIndex(p))
+    const indexes = indexUnder.map(p => this._nameToIndex(p))
 
     let txn = redis.multi().set(this._entryKey(id), JSON.stringify(value))
 
@@ -132,12 +136,12 @@ class Database<ValueT> {
     return txn.exec()
   }
 
-  async clear(indexPath?: string): Promise<ExecT[]> {
+  async clear(indexName?: string): Promise<ExecT[]> {
     if (DEBUG) {
-      console.log('DELETING ' + (indexPath || 'ALL'))
+      console.log('DELETING ' + (indexName || 'ALL'))
     }
 
-    const index = this._nameToIndex(indexPath || '')
+    const index = this._nameToIndex(indexName || '')
     const ids = await redis.zrange(this._indexKey(index), 0, -1)
 
     // Pipeline multple calls to delete above
@@ -157,7 +161,10 @@ class Database<ValueT> {
     limit = 20,
     ordering = 'asc',
   }: EntryQueryParams = {}): Promise<WithID<ValueT>[]> {
-    const computedIndex = await this._getOrCreateEntriesQuery(where)
+    const computedIndex =
+      typeof where === 'string'
+        ? this._nameToIndex(where)
+        : await this._getOrCreateEntriesQuery(where)
     const args: [string, number, number] = [
       this._indexKey(computedIndex),
       offset,
@@ -186,7 +193,10 @@ class Database<ValueT> {
   }: IndexQueryParams = {}): Promise<string[]> {
     // const index = this._nameToIndex(rootIndexName || '')
     // return redis.zrange(this._indexChildrenKey(index), offset, offset + limit)
-    const computedIndex = await this._getOrCreateIndexesQuery(where)
+    const computedIndex =
+      typeof where === 'string'
+        ? this._nameToIndex(where)
+        : await this._getOrCreateIndexesQuery(where)
     const args: [string, number, number] = [
       this._indexChildrenKey(computedIndex),
       offset,
@@ -203,7 +213,10 @@ class Database<ValueT> {
     min = '-inf',
     max = '+inf',
   }: CountParams = {}): Promise<number> {
-    const computedIndex = await this._getOrCreateEntriesQuery(where)
+    const computedIndex =
+      typeof where === 'string'
+        ? this._nameToIndex(where)
+        : await this._getOrCreateEntriesQuery(where)
     return redis.zcount(this._indexKey(computedIndex), min, max)
   }
 

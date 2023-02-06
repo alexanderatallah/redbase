@@ -33,18 +33,27 @@ async function main() {
     // Insert
     await Promise.all(
       randRows(INSERTION_BATCH).map(row =>
-        db.save(row.uuid, row, [`name/${row.name}`], val => val.date.getTime())
+        db.save(row.uuid, row, {
+          indexUnder: [
+            `projectId-${row.projectId}`,
+            `categoryId-${row.categoryId}`,
+          ],
+          sortBy: val => val.date.getTime(),
+        })
       )
     )
   }
 
   if (DO_SCROLL) {
+    const where = SCROLL_MULTIINDEXED
+      ? { OR: ['projectId-1', 'categoryId-1'] }
+      : {}
     // Paginate
-    const rowCount = await db.count()
+    const rowCount = await db.count({ where })
     console.log('rowCount redis', rowCount)
 
     for (let i = 0; i < rowCount; i += SCROLL_BATCH) {
-      await db.filter({ offset: i, limit: SCROLL_BATCH })
+      await db.filter({ where, offset: i, limit: SCROLL_BATCH })
     }
   }
 

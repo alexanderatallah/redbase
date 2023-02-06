@@ -8,6 +8,7 @@ import {
   DO_SCROLL,
   DO_DELETE,
   DO_SETUP,
+  SCROLL_MULTIINDEXED,
 } from './shared'
 
 const client = new Client({
@@ -24,11 +25,14 @@ async function setupSchema() {
       name TEXT,
       tags TEXT[],
       date TIMESTAMP,
-      text TEXT
+      text TEXT,
+      projectId BIGINT,
+      categoryId BIGINT
     );
 
     CREATE INDEX IF NOT EXISTS fake_rows_date_idx ON fake_rows (date);
-    CREATE INDEX IF NOT EXISTS fake_rows_name_idx ON fake_rows (name);
+    CREATE INDEX IF NOT EXISTS fake_rows_name_idx ON fake_rows (projectId);
+    CREATE INDEX IF NOT EXISTS fake_rows_name_idx ON fake_rows (categoryId);
   `)
 }
 
@@ -64,9 +68,10 @@ async function main() {
   }
 
   if (DO_SCROLL) {
+    const where = SCROLL_MULTIINDEXED ? 'WHERE projectId=1 or categoryId=1' : ''
     // Paginate
     const rowCount = await client.query(`
-      SELECT COUNT(*) FROM fake_rows;
+      SELECT COUNT(*) FROM fake_rows ${where};
     `)
     const count = (rowCount.rows[0] as { count: number }).count
     console.log('rowCount postgres', count)
@@ -74,7 +79,7 @@ async function main() {
     for (let i = 0; i < count; i += SCROLL_BATCH) {
       await client.query(
         `
-      SELECT * FROM fake_rows ORDER BY date DESC OFFSET $1 LIMIT $2
+      SELECT * FROM fake_rows ${where} ORDER BY date DESC OFFSET $1 LIMIT $2
     `,
         [i, SCROLL_BATCH]
       )

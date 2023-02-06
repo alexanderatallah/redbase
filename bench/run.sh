@@ -10,8 +10,8 @@ hyperfine --warmup 1 --runs 5 "ts-node ./bench/redis.ts DO_INSERT" "ts-node ./be
 printf "\n\nTESTING SCROLLING. This will depend on how many inserts were done earlier.\n"
 hyperfine --warmup 1 --runs 5 "ts-node ./bench/redis.ts DO_SCROLL" "ts-node ./bench/postgres.ts DO_SCROLL"
 
-# printf "\n\nTESTING MULTI-INDEX SCROLLING. This will depend on how many inserts were done earlier.\n"
-# hyperfine --warmup 1 --runs 5 "ts-node ./bench/redis.ts DO_SCROLL SCROLL_MULTIINDEXED" "ts-node ./bench/postgres.ts DO_SCROLL SCROLL_MULTIINDEXED"
+printf "\n\nTESTING MULTI-INDEX SCROLLING. This will depend on how many inserts were done earlier.\n"
+hyperfine --warmup 1 --runs 5 "ts-node ./bench/redis.ts DO_SCROLL SCROLL_MULTIINDEXED" "ts-node ./bench/postgres.ts DO_SCROLL SCROLL_MULTIINDEXED"
 
 printf "\n\nTESTING DELETES\n"
 printf "RESETTING DBs\n"
