@@ -9,7 +9,7 @@ export const DO_DELETE = args.includes('DO_DELETE')
 export const DO_SETUP = args.includes('DO_SETUP')
 export const SCROLL_INDEXED = args.includes('SCROLL_INDEXED')
 export const SCROLL_MULTIINDEXED = args.includes('SCROLL_MULTIINDEXED')
-export const INSERTION_BATCH = 50_000 // Increasing this slows down Postgres
+export const INSERTION_BATCH = 20_000
 export const SCROLL_BATCH = 500
 
 export type FakeRow = {

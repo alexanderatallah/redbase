@@ -7,6 +7,7 @@ A simple, fast, type-safe database on top of Redis.
 - Hierarchical indexes (useful for tagging cached data)
 - Small: only \_\_\_ lines
 - Zero npm dependencies (works with `redis`, `node-redis` and `ioredis`)
+- Self-vacuuming - indexes delete themselves during bulk-delete operations, and they shrink when entries are deleted individually
 - Only core Redis - no dependencies on Redis modules (useful for deploying on platforms like Upstash).
 - Never calls "KEYS" on your redis instance
 
