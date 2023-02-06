@@ -44,6 +44,12 @@ interface IndexQueryParams {
   ordering?: OrderDirection
 }
 
+interface CountParams {
+  where?: EntriesQueryWhere
+  min?: number | '-inf'
+  max?: number | '+inf'
+}
+
 /**
   INDEX SCHEMA
 
@@ -192,13 +198,13 @@ class Database<ValueT> {
     return redis.zrange(...args)
   }
 
-  async count(
-    indexPath?: string | undefined,
-    min: number | '-inf' = '-inf',
-    max: number | '+inf' = '+inf'
-  ): Promise<number> {
-    const index = this._nameToIndex(indexPath || '')
-    return redis.zcount(this._indexKey(index), min, max)
+  async count({
+    where = {},
+    min = '-inf',
+    max = '+inf',
+  }: CountParams = {}): Promise<number> {
+    const computedIndex = await this._getOrCreateEntriesQuery(where)
+    return redis.zcount(this._indexKey(computedIndex), min, max)
   }
 
   async delete(id: string): Promise<ExecT> {

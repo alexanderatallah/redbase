@@ -212,6 +212,14 @@ describe('Database', () => {
       ])
     })
 
+    it('should be able to count entries by index', async () => {
+      const count = await db.count({ where: { AND: ['foo'] } })
+      expect(count).toBe(2)
+
+      const count2 = await db.count({ where: { AND: ['bar'] } })
+      expect(count2).toBe(1)
+    })
+
     it('should clear along an index', async () => {
       await db.clear('foo')
       const data = await db.filter()
@@ -333,6 +341,11 @@ describe('Database', () => {
       ])
     })
 
+    it('should be able to count union indexes', async () => {
+      const count = await db.count({ where: { OR: ['mod2_0', 'mod3_0'] } })
+      expect(count).toBe(4)
+    })
+
     it('should be able to query intersection indexes', async () => {
       const data = await db.filter({ where: { AND: ['mod3_0', 'mod2_0'] } })
       expect(data).toStrictEqual([
@@ -341,6 +354,11 @@ describe('Database', () => {
           value: 'key 0',
         },
       ])
+    })
+
+    it('should be able to count intersection indexes', async () => {
+      const count = await db.count({ where: { AND: ['mod3_0', 'mod2_0'] } })
+      expect(count).toBe(1)
     })
 
     it('should be able to query intersection and union indexes', async () => {
@@ -368,6 +386,24 @@ describe('Database', () => {
         },
       })
       expect(data2).toStrictEqual([])
+    })
+
+    it('should be able to count intersection and union indexes', async () => {
+      const count = await db.count({
+        where: {
+          AND: ['mod2_0'],
+          OR: ['mod3_0', 'mod3_1'],
+        },
+      })
+      expect(count).toEqual(2)
+
+      const count2 = await db.count({
+        where: {
+          AND: ['mod2_0', 'mod2_1'],
+          OR: ['mod3_0', 'mod3_1', 'mod3_2'],
+        },
+      })
+      expect(count2).toEqual(0)
     })
   })
 
