@@ -3,10 +3,12 @@ import { faker } from '@faker-js/faker'
 
 const args = process.argv.slice(2)
 
-export const SKIP_INSERT = args.includes('SKIP_INSERT')
-export const SKIP_SCROLL = args.includes('SKIP_SCROLL')
-export const SKIP_DELETE = args.includes('SKIP_DELETE')
+export const DO_INSERT = args.includes('DO_INSERT')
+export const DO_SCROLL = args.includes('DO_SCROLL')
+export const DO_DELETE = args.includes('DO_DELETE')
 export const DO_SETUP = args.includes('DO_SETUP')
+export const SCROLL_UNINDEXED = args.includes('SCROLL_UNINDEXED')
+export const SCROLL_MULTIINDEXED = args.includes('SCROLL_MULTIINDEXED')
 export const INSERTION_BATCH = 50_000 // Increasing this slows down Postgres
 export const SCROLL_BATCH = 500
 

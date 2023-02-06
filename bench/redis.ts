@@ -4,10 +4,11 @@ import {
   INSERTION_BATCH,
   SCROLL_BATCH,
   randRows,
-  SKIP_INSERT,
-  SKIP_SCROLL,
-  SKIP_DELETE,
+  DO_INSERT,
+  DO_SCROLL,
+  DO_DELETE,
   DO_SETUP,
+  SCROLL_MULTIINDEXED,
 } from './shared'
 
 async function setupRedis(db: Database<FakeRow>) {
@@ -26,18 +27,18 @@ async function main() {
 
   if (DO_SETUP) {
     await setupRedis(db)
-    await redis.quit()
-    return
   }
 
-  if (!SKIP_INSERT) {
+  if (DO_INSERT) {
     // Insert
     await Promise.all(
-      randRows(INSERTION_BATCH).map(row => db.save(row.uuid, row))
+      randRows(INSERTION_BATCH).map(row =>
+        db.save(row.uuid, row, [`name/${row.name}`], val => val.date.getTime())
+      )
     )
   }
 
-  if (!SKIP_SCROLL) {
+  if (DO_SCROLL) {
     // Paginate
     const rowCount = await db.count()
     console.log('rowCount redis', rowCount)
@@ -47,7 +48,7 @@ async function main() {
     }
   }
 
-  if (!SKIP_DELETE) {
+  if (DO_DELETE) {
     // Delete
     await db.clear()
   }

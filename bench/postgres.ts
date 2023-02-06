@@ -4,9 +4,9 @@ import {
   INSERTION_BATCH,
   SCROLL_BATCH,
   FakeRow,
-  SKIP_INSERT,
-  SKIP_DELETE,
-  SKIP_SCROLL,
+  DO_INSERT,
+  DO_SCROLL,
+  DO_DELETE,
   DO_SETUP,
 } from './shared'
 
@@ -28,6 +28,7 @@ async function setupSchema() {
     );
 
     CREATE INDEX IF NOT EXISTS fake_rows_date_idx ON fake_rows (date);
+    CREATE INDEX IF NOT EXISTS fake_rows_name_idx ON fake_rows (name);
   `)
 }
 
@@ -44,11 +45,9 @@ async function main() {
 
   if (DO_SETUP) {
     await setupPostgres()
-    await client.end()
-    return
   }
 
-  if (!SKIP_INSERT) {
+  if (DO_INSERT) {
     // Insert each
 
     await Promise.all(
@@ -64,7 +63,7 @@ async function main() {
     )
   }
 
-  if (!SKIP_SCROLL) {
+  if (DO_SCROLL) {
     // Paginate
     const rowCount = await client.query(`
       SELECT COUNT(*) FROM fake_rows;
@@ -82,7 +81,7 @@ async function main() {
     }
   }
 
-  if (!SKIP_DELETE) {
+  if (DO_DELETE) {
     // Delete each after a select: same way as the redis client
     const res = await client.query(`
         SELECT uuid FROM fake_rows ORDER BY date DESC
