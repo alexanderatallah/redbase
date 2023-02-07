@@ -146,7 +146,7 @@ class Database<ValueT> {
   async clear({ where = '' }: ClearParams = {}): Promise<number> {
     const count = await this.count({ where })
     if (DEBUG) {
-      console.log(`DELETING ${count} from ${where || 'ALL'}`)
+      console.log(`DELETING ${count}`)
     }
 
     for (let offset = 0; offset < count; offset += this.deletionPageSize) {
@@ -205,8 +205,6 @@ class Database<ValueT> {
     limit = 20,
     ordering = 'asc',
   }: IndexQueryParams = {}): Promise<string[]> {
-    // const index = this._nameToIndex(rootIndexName || '')
-    // return redis.zrange(this._indexChildrenKey(index), offset, offset + limit)
     const computedIndex =
       typeof where === 'string'
         ? this._nameToIndex(where)
