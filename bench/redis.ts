@@ -35,10 +35,7 @@ async function main() {
     await Promise.all(
       randRows(INSERTION_BATCH).map(row =>
         db.save(row.uuid, row, {
-          indexUnder: [
-            `projectId-${row.projectId}`,
-            `categoryId-${row.categoryId}`,
-          ],
+          tags: [`projectId-${row.projectId}`, `categoryId-${row.categoryId}`],
           sortBy: val => val.date.getTime(),
         })
       )
