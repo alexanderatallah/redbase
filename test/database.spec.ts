@@ -27,7 +27,7 @@ describe('Database', () => {
 
     it('shoudl not have a name setter', () => {
       // @ts-ignore
-      expect(() => (db.name = 'Test')).toThrowError()
+      expect(() => (db.name = 'dest')).toThrowError()
     })
   })
 

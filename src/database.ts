@@ -81,14 +81,18 @@ class Database<ValueT> {
   public aggregateTagTTL: number
   public deletionPageSize: number
 
-  // Readonly, since changing this after initialization will break things
-  public readonly name: string
+  // Private, since changing this after initialization will break things
+  private _name: string
 
   constructor(name: string, opts: Options = {}) {
     this.exp = opts.defaultExpiration
     this.deletionPageSize = opts.deletionPageSize || 2000
-    this.name = name
+    this._name = name
     this.aggregateTagTTL = opts.aggregateTagTTL || 10 // seconds
+  }
+
+  public get name() {
+    return this._name
   }
 
   async get(id: string): Promise<ValueT | undefined> {

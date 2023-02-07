@@ -20,7 +20,7 @@ export class Tag {
     // Input: "/a/b/c"
     // Output: ["", "/a", "/a/b", "/a/b/c"]
     // Invalid: "/", "/a/b/c/"
-    if (tagName === '/' || tagName?.endsWith(separator)) {
+    if (tagName?.endsWith(separator)) {
       throw new Error('Path must not be or end with separator: ' + tagName)
     }
     if (!tagName) {
