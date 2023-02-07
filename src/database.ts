@@ -1,23 +1,17 @@
 import { redis, ExecT } from './backend'
 import { ChainableCommander } from 'ioredis'
+import { Tag } from './tag'
 
 const GLOBAL_PREFIX = process.env['REDIS_PREFIX'] || ''
 const DEBUG = process.env['DEBUG'] === 'true'
-const QUERY_INDEX_TTL_BUFFER = 0.1 // seconds
+const AGG_TAG_TTL_BUFFER = 0.1 // seconds
 export interface Options {
   defaultExpiration?: number // Default expiration (in seconds) to use for each entry. Defaults to undefined
-  indexPathSeparator?: string // Separator for nested indexes. Defaults to "/"
-  indexUnionSeparator?: string // Separator for union indexes. Defaults to "|"
-  queryIndexTTL?: number // TTL for computed query indexes. Defaults to 10 seconds
+  aggregateTagTTL?: number // TTL for computed query tags. Defaults to 10 seconds
   deletionPageSize?: number // Number of entries to delete at a time when calling "clear". Defaults to 2000.
 }
 
 export type OrderDirection = 'asc' | 'desc'
-
-export type Index = {
-  name: string
-  parent?: Index
-}
 
 export type WithID<ValueT> = {
   id: string
@@ -29,7 +23,7 @@ type EntriesQueryWhere = {
   OR?: string[]
 }
 
-type IndexesQueryWhere = Omit<EntriesQueryWhere, 'AND'>
+type TagsQueryWhere = Omit<EntriesQueryWhere, 'AND'>
 
 interface EntryQueryParams {
   where?: EntriesQueryWhere | string
@@ -38,8 +32,8 @@ interface EntryQueryParams {
   ordering?: OrderDirection
 }
 
-interface IndexQueryParams {
-  where?: IndexesQueryWhere | string
+interface TagQueryParams {
+  where?: TagsQueryWhere | string
   limit?: number
   offset?: number
   ordering?: OrderDirection
@@ -56,49 +50,45 @@ interface ClearParams {
 }
 
 interface SaveParams<ValueT> {
-  indexUnder?: string | string[]
+  tags?: string | string[]
   sortBy?: (v: ValueT) => number
 }
 
 /**
-  INDEX SCHEMA
+  SCHEMA
 
   `${REDIS_PREFIX}:${CACHE_NAME}:${CONTENT_ID}`: this is where the entry is
       stored (as a string until we have json support)
 
-  `${REDIS_PREFIX}:${CACHE_NAME}:${CONTENT_ID}/indexes`: this is where the
+  `${REDIS_PREFIX}:${CACHE_NAME}:${CONTENT_ID}/tags`: this is where the
       list of tags is stored, as a set of strings, so we can delete
-      the entry's index memberships later
+      the entry's tag memberships later
 
-  `${REDIS_PREFIX}:index:${CACHE_NAME}:{TAG_1}/{TAG_2}`: this is an example
-      index, stored as a sorted set of content id strings, so we can
+  `${REDIS_PREFIX}:tag:${CACHE_NAME}:{TAG_1}/{TAG_2}`: this is an example
+      tag, stored as a sorted set of content id strings, so we can
       list the entries later that fall under an optionally-nested tag.
 
-      NOTE: `${REDIS_PREFIX}:index:${CACHE_NAME}` is the root index, with
+      NOTE: `${REDIS_PREFIX}:tag:${CACHE_NAME}` is the root tag, with
       everything in it.
   
-  `${REDIS_PREFIX}:index:${CACHE_NAME}:{TAG_1}/{TAG_2}:children`: this is
-      a sorted set of the children on an index, so we can list them
+  `${REDIS_PREFIX}:tag:${CACHE_NAME}:{TAG_1}/{TAG_2}:children`: this is
+      a sorted set of the children on an tag, so we can list them
       and delete them later
  */
 
 class Database<ValueT> {
   public exp: number | undefined
-  public queryIndexTTL: number
+  public aggregateTagTTL: number
   public deletionPageSize: number
 
   // Private, since changing this after initialization will break things
   private _name: string
-  private _indexPathSeparator: string
-  private _indexUnionSeparator: string
 
   constructor(name: string, opts: Options = {}) {
     this.exp = opts.defaultExpiration
     this.deletionPageSize = opts.deletionPageSize || 2000
     this._name = name
-    this._indexPathSeparator = opts.indexPathSeparator || '/'
-    this._indexUnionSeparator = opts.indexUnionSeparator || '|'
-    this.queryIndexTTL = opts.queryIndexTTL || 10 // seconds
+    this.aggregateTagTTL = opts.aggregateTagTTL || 10 // seconds
   }
 
   public get name() {
@@ -120,23 +110,23 @@ class Database<ValueT> {
   async save(
     id: string,
     value: ValueT,
-    { indexUnder, sortBy }: SaveParams<ValueT> = {}
+    { tags, sortBy }: SaveParams<ValueT> = {}
   ): Promise<ExecT> {
-    if (!Array.isArray(indexUnder)) {
-      indexUnder = [indexUnder || '']
+    if (!Array.isArray(tags)) {
+      tags = [tags || '']
     }
 
     const score = sortBy ? sortBy(value) : new Date().getTime()
-    const indexes = indexUnder.map(p => this._nameToIndex(p))
+    const tagInstances = tags.map(p => Tag.fromPath(p))
 
     let txn = redis.multi().set(this._entryKey(id), JSON.stringify(value))
 
-    for (const index of indexes) {
-      txn = this._indexEntry(txn, index, id, score)
+    for (const tag of tagInstances) {
+      txn = this._indexEntry(txn, tag, id, score)
     }
 
     // Set expiration
-    // TODO: provide a way to clean up index keys
+    // TODO: provide a way to clean up tag keys
     if (this.exp) {
       txn = txn.expire(this._entryKey(id), this.exp)
     }
@@ -159,9 +149,9 @@ class Database<ValueT> {
       await Promise.all(ids.map(id => this.delete(id)))
     }
 
-    // Also delete the index itself and all children, if there are no possible entries left
+    // Also delete the tag itself and all children, if there are no possible entries left
     // TODO add tests
-    const indexNamesToDelete: string[] =
+    const tagPathsToDelete: string[] =
       typeof where === 'string'
         ? [where]
         : where.AND?.length && where.OR?.length
@@ -173,8 +163,8 @@ class Database<ValueT> {
         : [] // Possible entries left
 
     let txn = redis.multi()
-    for (const indexName of indexNamesToDelete) {
-      txn = this._recursiveIndexDeletion(txn, this._nameToIndex(indexName))
+    for (const tagPath of tagPathsToDelete) {
+      txn = this._recursiveTagDeletion(txn, Tag.fromPath(tagPath))
     }
 
     await txn.exec()
@@ -199,18 +189,18 @@ class Database<ValueT> {
       .filter((maybeVal): maybeVal is WithID<ValueT> => !!maybeVal)
   }
 
-  async indexes({
+  async tags({
     where = '',
     offset = 0,
     limit = 20,
     ordering = 'asc',
-  }: IndexQueryParams = {}): Promise<string[]> {
-    const computedIndex =
+  }: TagQueryParams = {}): Promise<string[]> {
+    const computedTag =
       typeof where === 'string'
-        ? this._nameToIndex(where)
-        : await this._getOrCreateIndexesQuery(where)
+        ? Tag.fromPath(where)
+        : await this._getOrCreateTagsQuery(where)
     const args: [string, number, number] = [
-      this._indexChildrenKey(computedIndex),
+      this._tagChildrenKey(computedTag),
       offset,
       offset + limit - 1, // ZRANGE limits are inclusive
     ]
@@ -225,38 +215,38 @@ class Database<ValueT> {
     scoreMin = '-inf',
     scoreMax = '+inf',
   }: CountParams = {}): Promise<number> {
-    const computedIndex =
+    const computedTag =
       typeof where === 'string'
-        ? this._nameToIndex(where)
+        ? Tag.fromPath(where)
         : await this._getOrCreateEntriesQuery(where)
-    return redis.zcount(this._indexKey(computedIndex), scoreMin, scoreMax)
+    return redis.zcount(this._tagKey(computedTag), scoreMin, scoreMax)
   }
 
   async delete(id: string): Promise<ExecT> {
-    const indexKey = this._entryIndexesKey(id)
+    const tagKey = this._entryTagsKey(id)
     if (DEBUG) {
       console.log(
-        `DELETING entry ${id}, the set of indexes at ${indexKey}, and ${id} from those indexes`
+        `DELETING entry ${id}, the set of tags at ${tagKey}, and ${id} from those tags`
       )
     }
-    const indexPaths = await redis.smembers(indexKey)
-    const indexes = indexPaths.map(p => this._nameToIndex(p))
+    const tagPaths = await redis.smembers(tagKey)
+    const tags = tagPaths.map(p => Tag.fromPath(p))
 
     // TODO Using unlink instead of del here doesn't seem to improve perf much
     let txn = redis.multi()
     txn = txn.del(this._entryKey(id))
 
-    for (let index of indexes) {
+    for (let tag of tags) {
       // Traverse child hierarchy
-      while (index.parent) {
-        txn = txn.zrem(this._indexKey(index), id)
-        index = index.parent
+      while (tag.parent) {
+        txn = txn.zrem(this._tagKey(tag), id)
+        tag = tag.parent
       }
       // Root. Note that there might be duplicate zrem calls for shared parents, esp root
-      txn = txn.zrem(this._indexKey(index), id)
+      txn = txn.zrem(this._tagKey(tag), id)
     }
 
-    txn = txn.del(indexKey)
+    txn = txn.del(tagKey)
     return txn.exec()
   }
 
@@ -266,12 +256,12 @@ class Database<ValueT> {
     limit,
     ordering,
   }: Required<EntryQueryParams>): Promise<string[]> {
-    const computedIndex =
+    const computedTag =
       typeof where === 'string'
-        ? this._nameToIndex(where)
+        ? Tag.fromPath(where)
         : await this._getOrCreateEntriesQuery(where)
     const args: [string, number, number] = [
-      this._indexKey(computedIndex),
+      this._tagKey(computedTag),
       offset,
       offset + limit - 1, // ZRANGE limits are inclusive
     ]
@@ -283,24 +273,24 @@ class Database<ValueT> {
 
   _indexEntry(
     txn: ChainableCommander,
-    index: Index,
+    tag: Tag,
     entryId: string,
     score: number
   ) {
-    // Register this index under the entry
-    txn = txn.sadd(this._entryIndexesKey(entryId), index.name)
+    // Tag this tag under the entry
+    txn = txn.sadd(this._entryTagsKey(entryId), tag.name)
 
     // Traverse child hierarchy
-    while (index.parent) {
-      // Add the entry to this index
-      txn = txn.zadd(this._indexKey(index), score, entryId)
-      // Register this index under its parent
-      txn = txn.zadd(this._indexChildrenKey(index.parent), 0, index.name)
+    while (tag.parent) {
+      // Tag the entry under this tag
+      txn = txn.zadd(this._tagKey(tag), score, entryId)
+      // Register this tag under its parent
+      txn = txn.zadd(this._tagChildrenKey(tag.parent), 0, tag.name)
       // Move up the hierarchy
-      index = index.parent
+      tag = tag.parent
     }
-    // We're at the root index now - add the entry to it as well
-    txn = txn.zadd(this._indexKey(index), score, entryId)
+    // We're at the root tag now - add the entry to it as well
+    txn = txn.zadd(this._tagKey(tag), score, entryId)
     return txn
   }
 
@@ -314,150 +304,126 @@ class Database<ValueT> {
     return `${GLOBAL_PREFIX}:${this.name}:${id}`
   }
 
-  _entryIndexesKey(id: string): string {
-    return `${this._entryKey(id)}/indexes`
+  _entryTagsKey(id: string): string {
+    return `${this._entryKey(id)}/tags`
   }
 
-  _indexKey(index: Index): string {
-    const suffix = index.name ? `:${index.name}` : ''
-    return `${GLOBAL_PREFIX}:${this.name}:index${suffix}`
+  _tagKey(tag: Tag): string {
+    return `${GLOBAL_PREFIX}:${this.name}:${tag.key}`
   }
 
-  _indexChildrenKey(index: Index): string {
-    return `${this._indexKey(index)}:children`
-  }
-
-  _nameToIndex(indexName: string): Index {
-    // Input: "/a/b/c"
-    // Output: ["", "/a", "/a/b", "/a/b/c"]
-    // Invalid: "/", "/a/b/c/"
-    if (indexName === '/' || indexName?.endsWith(this._indexPathSeparator)) {
-      throw new Error('Path must not be or end with separator: ' + indexName)
-    }
-    if (!indexName) {
-      // Root node
-      return { name: '' }
-    }
-    const parentName = indexName
-      .split(this._indexPathSeparator)
-      .slice(0, -1)
-      .join(this._indexPathSeparator)
-    return {
-      name: indexName,
-      parent: this._nameToIndex(parentName),
-    }
+  _tagChildrenKey(tag: Tag): string {
+    return `${this._tagKey(tag)}:children`
   }
 
   _isValue(x: ValueT | null | undefined): x is ValueT {
     return !!x
   }
 
-  async _getOrCreateEntriesQuery(where: EntriesQueryWhere): Promise<Index> {
-    const allIndexNames = (where.AND || []).concat(where.OR || [])
-    if (allIndexNames.length === 0) {
-      // No indexes specified, so we'll use the root index
-      return this._nameToIndex('')
+  async _getOrCreateEntriesQuery(where: EntriesQueryWhere): Promise<Tag> {
+    const allTagPaths = (where.AND || []).concat(where.OR || [])
+    if (allTagPaths.length === 0) {
+      // No tags specified, so we'll use the root tag
+      return Tag.root()
     }
-    if (allIndexNames.length === 1) {
-      // Only one index specified, so we'll use that
-      return this._nameToIndex(allIndexNames[0])
+    if (allTagPaths.length === 1) {
+      // Only one tag specified, so we'll use that
+      return Tag.fromPath(allTagPaths[0])
     }
 
-    // Starting with where.OR, create a union index
-    let union: Index | undefined, intersection: Index | undefined
+    // Starting with where.OR, create a union tag
+    let union: Tag | undefined, intersection: Tag | undefined
 
     if (where.OR?.length) {
       if (where.OR.length === 1) {
-        throw new Error("Can't have a single index in an OR query")
+        throw new Error("Can't have a single tag in an OR query")
       }
-      union = await this._getOrCreateIndex(where.OR, 'union')
+      union = await this._getOrCreateTag(where.OR, 'union')
     }
 
     if (where.AND?.length) {
       if (where.AND.length === 1) {
-        intersection = this._nameToIndex(where.AND[0])
+        intersection = Tag.fromPath(where.AND[0])
       } else {
-        intersection = await this._getOrCreateIndex(where.AND, 'intersection')
+        intersection = await this._getOrCreateTag(where.AND, 'intersection')
       }
     }
 
     if (union && intersection) {
-      return await this._getOrCreateIndex(
+      return await this._getOrCreateTag(
         [union.name, intersection.name],
         'intersection'
       )
     } else {
-      // nameToIndex is unreachable, but here to evade a typescript bug
-      return union || intersection || this._nameToIndex('')
+      // Tag.root is unreachable, but here to evade a typescript bug
+      return union || intersection || Tag.root()
     }
   }
 
-  async _getOrCreateIndexesQuery(where: IndexesQueryWhere): Promise<Index> {
+  async _getOrCreateTagsQuery(where: TagsQueryWhere): Promise<Tag> {
     if (!where.OR || where.OR.length === 0) {
-      // No indexes specified, so we'll use the root index
-      return this._nameToIndex('')
+      // No tags specified, so we'll use the root tag
+      return Tag.root()
     }
     if (where.OR.length === 1) {
-      // Only one index specified, so we'll use that
-      return this._nameToIndex(where.OR[0])
+      // Only one tag specified, so we'll use that
+      return Tag.fromPath(where.OR[0])
     }
 
-    const targetIndex = this._nameToIndex(where.OR.join('+'))
-    const txn = await this._createAggregateIndex(
-      this._indexChildrenKey(targetIndex),
-      where.OR.map(n => this._indexChildrenKey(this._nameToIndex(n))),
+    const targetTag = Tag.fromPath(where.OR.join('+'))
+    const txn = await this._getOrCreateAggregateTag(
+      this._tagChildrenKey(targetTag),
+      where.OR.map(n => this._tagChildrenKey(Tag.fromPath(n))),
       'union'
     )
     await txn.exec()
-    return targetIndex
+    return targetTag
   }
 
-  async _getOrCreateIndex(
-    indexNames: string[],
+  async _getOrCreateTag(
+    tagPaths: string[],
     type: 'union' | 'intersection'
-  ): Promise<Index> {
-    const targetIndex = this._nameToIndex(
-      indexNames.join(type === 'union' ? '+' : '&')
-    )
-    const txn = await this._createAggregateIndex(
-      this._indexKey(targetIndex),
-      indexNames.map(n => this._indexKey(this._nameToIndex(n))),
+  ): Promise<Tag> {
+    const targetTag = Tag.fromPath(tagPaths.join(type === 'union' ? '+' : '&'))
+    const txn = await this._getOrCreateAggregateTag(
+      this._tagKey(targetTag),
+      tagPaths.map(n => this._tagKey(Tag.fromPath(n))),
       type
     )
     await txn.exec()
-    return targetIndex
+    return targetTag
   }
 
-  async _createAggregateIndex(
-    targetIndexKey: string,
-    indexKeys: string[],
+  async _getOrCreateAggregateTag(
+    targetTagKey: string,
+    tagKeys: string[],
     type: 'union' | 'intersection'
   ): Promise<ChainableCommander> {
     let txn = redis.multi()
-    if ((await redis.ttl(targetIndexKey)) > QUERY_INDEX_TTL_BUFFER) {
+    if ((await redis.ttl(targetTagKey)) > AGG_TAG_TTL_BUFFER) {
       return txn
     }
     const methodName = type === 'union' ? 'zunionstore' : 'zinterstore'
     txn = txn[methodName](
-      targetIndexKey,
-      indexKeys.length,
-      ...indexKeys,
+      targetTagKey,
+      tagKeys.length,
+      ...tagKeys,
       'AGGREGATE',
       'MIN'
-    ).expire(targetIndexKey, this.queryIndexTTL)
+    ).expire(targetTagKey, this.aggregateTagTTL)
     return txn
   }
 
-  _recursiveIndexDeletion(
+  _recursiveTagDeletion(
     multi: ChainableCommander,
-    index: Index
+    tag: Tag
   ): ChainableCommander {
-    let ret = multi.del(this._indexKey(index))
-    const childindexes = redis.zrange(this._indexChildrenKey(index), 0, -1)
-    for (const child in childindexes) {
-      ret = this._recursiveIndexDeletion(ret, this._nameToIndex(child))
+    let ret = multi.del(this._tagKey(tag))
+    const childtags = redis.zrange(this._tagChildrenKey(tag), 0, -1)
+    for (const child in childtags) {
+      ret = this._recursiveTagDeletion(ret, Tag.fromPath(child))
     }
-    return ret.del(this._indexChildrenKey(index))
+    return ret.del(this._tagChildrenKey(tag))
   }
 }
 

@@ -9,7 +9,7 @@ describe('Database', () => {
 
   beforeAll(() => {
     // Use a low ttl to prevent stale indices between tests
-    db = new Database<string>('Test', { queryIndexTTL: 0.1 })
+    db = new Database<string>('Test', { aggregateTagTTL: 0.1 })
     dbComplex = new Database<ValueT>('TestComplex')
   })
 
@@ -178,11 +178,11 @@ describe('Database', () => {
 
     beforeAll(async () => {
       uuids = Array.from({ length: 4 }, () => uuidv4())
-      await db.save(uuids[0], 'foo', { indexUnder: ['foo', '1'] })
+      await db.save(uuids[0], 'foo', { tags: ['foo', '1'] })
       await new Promise(resolve => setTimeout(resolve, 10))
-      await db.save(uuids[1], 'bar', { indexUnder: ['bar', '1'] })
+      await db.save(uuids[1], 'bar', { tags: ['bar', '1'] })
       await new Promise(resolve => setTimeout(resolve, 10))
-      await db.save(uuids[2], 'foobar', { indexUnder: ['foo/bar', '2'] })
+      await db.save(uuids[2], 'foobar', { tags: ['foo/bar', '2'] })
     })
 
     afterAll(async () => {
@@ -190,7 +190,7 @@ describe('Database', () => {
       await dbComplex.clear()
     })
 
-    it('should be able to filter entries by index', async () => {
+    it('should be able to filter entries by tag', async () => {
       const data = await db.filter({ where: { AND: ['foo'] } })
       expect(data).toEqual([
         {
@@ -212,7 +212,7 @@ describe('Database', () => {
       ])
     })
 
-    it('should be able to count entries by index', async () => {
+    it('should be able to count entries by tag', async () => {
       const count = await db.count({ where: { AND: ['foo'] } })
       expect(count).toBe(2)
 
@@ -220,7 +220,7 @@ describe('Database', () => {
       expect(count2).toBe(1)
     })
 
-    it('should clear along an index', async () => {
+    it('should clear along an tag', async () => {
       await db.clear({ where: 'foo' })
       const data = await db.filter()
       expect(data).toEqual([
@@ -231,7 +231,7 @@ describe('Database', () => {
       ])
     })
 
-    it('should clear indexes as well as entries', async () => {
+    it('should clear tags as well as entries', async () => {
       await db.clear({ where: 'foo' })
       await db.save(uuids[0], 'foo')
       const data = await db.filter({ where: { AND: ['foo'] } })
@@ -250,7 +250,7 @@ describe('Database', () => {
       uuids = Array.from({ length: 6 }).map(() => uuidv4())
       for (let i = 0; i < uuids.length; i++) {
         await db.save(uuids[i], `key ${i}`, {
-          indexUnder: [`mod3_${i % 3}`, `mod2_${i % 2}`],
+          tags: [`mod3_${i % 3}`, `mod2_${i % 2}`],
         })
         // Wait 10ms prevent pipelining
         await new Promise(resolve => setTimeout(resolve, 10))
@@ -291,7 +291,7 @@ describe('Database', () => {
       ])
     })
 
-    it('should be able to filter by individual indexes', async () => {
+    it('should be able to filter by individual tags', async () => {
       const data = await db.filter({ where: { AND: ['mod3_0'] } })
       expect(data).toStrictEqual([
         {
@@ -321,7 +321,7 @@ describe('Database', () => {
       ])
     })
 
-    it('should be able to query union indexes', async () => {
+    it('should be able to query union tags', async () => {
       const data = await db.filter({ where: { OR: ['mod2_0', 'mod3_0'] } })
       expect(data).toStrictEqual([
         {
@@ -343,12 +343,12 @@ describe('Database', () => {
       ])
     })
 
-    it('should be able to count union indexes', async () => {
+    it('should be able to count union tags', async () => {
       const count = await db.count({ where: { OR: ['mod2_0', 'mod3_0'] } })
       expect(count).toBe(4)
     })
 
-    it('should be able to query intersection indexes', async () => {
+    it('should be able to query intersection tags', async () => {
       const data = await db.filter({ where: { AND: ['mod3_0', 'mod2_0'] } })
       expect(data).toStrictEqual([
         {
@@ -358,12 +358,12 @@ describe('Database', () => {
       ])
     })
 
-    it('should be able to count intersection indexes', async () => {
+    it('should be able to count intersection tags', async () => {
       const count = await db.count({ where: { AND: ['mod3_0', 'mod2_0'] } })
       expect(count).toBe(1)
     })
 
-    it('should be able to query intersection and union indexes', async () => {
+    it('should be able to query intersection and union tags', async () => {
       const data = await db.filter({
         where: {
           AND: ['mod2_0'],
@@ -390,7 +390,7 @@ describe('Database', () => {
       expect(data2).toStrictEqual([])
     })
 
-    it('should be able to count intersection and union indexes', async () => {
+    it('should be able to count intersection and union tags', async () => {
       const count = await db.count({
         where: {
           AND: ['mod2_0'],
@@ -409,17 +409,14 @@ describe('Database', () => {
     })
   })
 
-  describe('indexes() for filtering indexes', () => {
+  describe('tags() for filtering tags', () => {
     let uuids: string[]
 
     beforeAll(async () => {
       uuids = Array.from({ length: 6 }).map(() => uuidv4())
       for (let i = 0; i < uuids.length; i++) {
         await db.save(uuids[i], `key ${i}`, {
-          indexUnder: [
-            `math/mod2_${i % 2}`,
-            `even/${(i % 2 === 0).toString()}`,
-          ],
+          tags: [`math/mod2_${i % 2}`, `even/${(i % 2 === 0).toString()}`],
         })
         // Wait 10ms prevent pipelining
         await new Promise(resolve => setTimeout(resolve, 10))
@@ -430,24 +427,24 @@ describe('Database', () => {
       await db.clear()
     })
 
-    it('should be able to list all indexes', async () => {
-      const data = await db.indexes()
+    it('should be able to list all tags', async () => {
+      const data = await db.tags()
       expect(data).toStrictEqual(['even', 'math'])
     })
 
-    it('should be able to filter down hierarchical indexes', async () => {
-      const data = await db.indexes({ where: { OR: ['even'] } })
+    it('should be able to filter down hierarchical tags', async () => {
+      const data = await db.tags({ where: { OR: ['even'] } })
       expect(data).toEqual(['even/false', 'even/true'])
 
-      const data2 = await db.indexes({ where: { OR: ['even/true'] } })
+      const data2 = await db.tags({ where: { OR: ['even/true'] } })
       expect(data2).toEqual([])
 
-      const data3 = await db.indexes({ where: { OR: ['math'] } })
+      const data3 = await db.tags({ where: { OR: ['math'] } })
       expect(data3).toEqual(['math/mod2_0', 'math/mod2_1'])
     })
 
-    it('should be able to query union indexes', async () => {
-      const data = await db.indexes({
+    it('should be able to query union tags', async () => {
+      const data = await db.tags({
         where: { OR: ['math', 'even'] },
       })
       expect(data).toEqual([
