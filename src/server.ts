@@ -85,10 +85,11 @@ async function handleDelete(
 // Server setup
 
 // eslint-disable-next-line @typescript-eslint/no-misused-promises
-const server = http.createServer(async (req, res) => {
+export const server = http.createServer(async (req, res) => {
   res.statusCode = 200
   res.setHeader('Content-Type', 'application/json')
-  res.end(JSON.stringify(await respondTo(req, res)))
+  const json = await respondTo(req, res)
+  res.end(JSON.stringify(json))
 })
 
 server.listen(port, hostname, () => {
