@@ -11,6 +11,7 @@
     "clean": "rm -rf ./lib/",
     "cm": "cz",
     "lint": "eslint ./src/ --fix",
+    "server": "ts-node ./src/server.ts",
     "prepare": "husky install",
     "benchmark": "bash ./bench/run.sh",
     "semantic-release": "semantic-release",
