@@ -16,6 +16,7 @@ export type Response<ValueT> = {
 }
 
 const ENTRY_PREFIX = '/entry/'
+const PAGE_SIZE = 40
 
 async function respondTo(req: http.IncomingMessage, res: http.ServerResponse) {
   const host = `http://${req.headers.host || ''}`
@@ -31,11 +32,11 @@ async function respondTo(req: http.IncomingMessage, res: http.ServerResponse) {
     return handleDelete(req, res)
   }
 
-  const absolutePath = host + tagPath
+  const absolutePath = host + '/' + tagPath
   const entries = await db.filter({
     where: tagPath,
     offset: offset,
-    limit: 40,
+    limit: PAGE_SIZE,
     ordering: 'desc',
   })
   const subTags = await db.tags({ where: tagPath })
@@ -43,12 +44,24 @@ async function respondTo(req: http.IncomingMessage, res: http.ServerResponse) {
 
   // Create actions for the UI
   const actions: Record<string, string> = {
-    [`delete all ${count}`]: absolutePath + '/' + tagPath + '?method=DELETE',
+    [`delete all ${count}`]: absolutePath + '?method=DELETE',
+  }
+  if (tagPath) {
+    actions['back to root'] = host
+  }
+  if (count > offset + PAGE_SIZE) {
+    actions[`next ${PAGE_SIZE}`] =
+      absolutePath + `?offset=${offset + PAGE_SIZE}`
+    actions[`last ${PAGE_SIZE}`] = absolutePath + `?offset=${count - PAGE_SIZE}`
+  }
+  if (offset > 0) {
+    actions[`prev ${PAGE_SIZE}`] =
+      absolutePath + `?offset=${Math.max(offset - PAGE_SIZE, 0)}`
   }
   for (const subTag of subTags) {
     const tagParts = subTag.split('/')
     const label = 'browse ' + decodeURIComponent(tagParts[tagParts.length - 1])
-    actions[label] = absolutePath + '/' + subTag
+    actions[label] = absolutePath + subTag
   }
 
   return {
