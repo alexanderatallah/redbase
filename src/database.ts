@@ -1,5 +1,9 @@
-import { redis, ExecT } from './backend'
-import { ChainableCommander } from 'ioredis'
+import {
+  ExecT,
+  NodeRedisClient,
+  IORedisClient,
+  ChainableCommander,
+} from './backend'
 import { Tag } from './tag'
 
 const GLOBAL_PREFIX = process.env['REDIS_PREFIX'] || ''
@@ -80,12 +84,18 @@ interface SaveParams<ValueT> {
 class Database<ValueT> {
   public aggregateTagTTL: number
   public deletionPageSize: number
+  public client: RedisClient
 
   // Private, since changing this after initialization could break things
   private _name: string
   private _defaultTTL: number | undefined
 
-  constructor(name: string, opts: Options = {}) {
+  constructor(
+    name: string,
+    client: NodeRedisClient | IORedisClient,
+    opts: Options = {}
+  ) {
+    this.client = client
     this.defaultTTL = opts.defaultExpiration
     this.deletionPageSize = opts.deletionPageSize || 2000
     this._name = name
@@ -128,7 +138,7 @@ class Database<ValueT> {
     const score = sortBy ? sortBy(value) : new Date().getTime()
     const tagInstances = tags.map(p => Tag.fromPath(p))
 
-    let txn = redis.multi().set(this._entryKey(id), JSON.stringify(value))
+    let txn = this.client.multi().set(this._entryKey(id), JSON.stringify(value))
 
     for (const tag of tagInstances) {
       txn = this._indexEntry(txn, tag, id, score)
@@ -174,7 +184,7 @@ class Database<ValueT> {
         ? where.AND
         : [] // Possible entries left
 
-    let txn = redis.multi()
+    let txn = this.client.multi()
     for (const tagPath of tagPathsToDelete) {
       txn = this._recursiveTagDeletion(txn, Tag.fromPath(tagPath))
     }
@@ -219,7 +229,7 @@ class Database<ValueT> {
     if (ordering === 'desc') {
       args.push('REV')
     }
-    return redis.zrange(...args)
+    return this.client.zrange(...args)
   }
 
   async count({
@@ -231,7 +241,7 @@ class Database<ValueT> {
       typeof where === 'string'
         ? Tag.fromPath(where)
         : await this._getOrCreateEntriesQuery(where)
-    return redis.zcount(this._tagKey(computedTag), scoreMin, scoreMax)
+    return this.client.zcount(this._tagKey(computedTag), scoreMin, scoreMax)
   }
 
   async delete(id: string): Promise<ExecT> {
@@ -241,11 +251,11 @@ class Database<ValueT> {
         `DELETING entry ${id}, the set of tags at ${tagKey}, and ${id} from those tags`
       )
     }
-    const tagPaths = await redis.smembers(tagKey)
+    const tagPaths = await this.client.smembers(tagKey)
     const tags = tagPaths.map(p => Tag.fromPath(p))
 
     // TODO Using unlink instead of del here doesn't seem to improve perf much
-    let txn = redis.multi()
+    let txn = this.client.multi()
     txn = txn.del(this._entryKey(id))
 
     for (let tag of tags) {
@@ -263,7 +273,7 @@ class Database<ValueT> {
   }
 
   async ttl(id: string): Promise<number | undefined> {
-    const ttl = await redis.ttl(this._entryKey(id))
+    const ttl = await this.client.ttl(this._entryKey(id))
     return ttl < 0 ? undefined : ttl
   }
 
@@ -292,7 +302,7 @@ class Database<ValueT> {
     if (ordering === 'desc') {
       args.push('REV')
     }
-    return redis.zrange(...args)
+    return this.client.zrange(...args)
   }
 
   _indexEntry(
@@ -321,7 +331,7 @@ class Database<ValueT> {
   // Helpers
 
   _getRawValue(id: string): Promise<string | null> {
-    return redis.get(this._entryKey(id))
+    return this.client.get(this._entryKey(id))
   }
 
   _entryKey(id: string): string {
@@ -423,8 +433,8 @@ class Database<ValueT> {
     tagKeys: string[],
     type: 'union' | 'intersection'
   ): Promise<ChainableCommander> {
-    let txn = redis.multi()
-    if ((await redis.ttl(targetTagKey)) > AGG_TAG_TTL_BUFFER) {
+    let txn = this.client.multi()
+    if ((await this.client.ttl(targetTagKey)) > AGG_TAG_TTL_BUFFER) {
       return txn
     }
     const methodName = type === 'union' ? 'zunionstore' : 'zinterstore'
@@ -443,7 +453,7 @@ class Database<ValueT> {
     tag: Tag
   ): ChainableCommander {
     let ret = multi.del(this._tagKey(tag))
-    const childtags = redis.zrange(this._tagChildrenKey(tag), 0, -1)
+    const childtags = this.client.zrange(this._tagChildrenKey(tag), 0, -1)
     for (const child in childtags) {
       ret = this._recursiveTagDeletion(ret, Tag.fromPath(child))
     }
@@ -451,4 +461,4 @@ class Database<ValueT> {
   }
 }
 
-export { Database, redis }
+export { Database }

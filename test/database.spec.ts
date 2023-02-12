@@ -1,5 +1,6 @@
-import { Database, redis } from '../src'
+import { Database } from '../src'
 import { v4 as uuidv4 } from 'uuid'
+import { ioRedis } from './helpers'
 
 describe('Database', () => {
   type ValueT = { answer: string; optional?: number[] }
@@ -9,14 +10,14 @@ describe('Database', () => {
 
   beforeAll(() => {
     // Use a low ttl to prevent stale indices between tests
-    db = new Database<string>('Test', { aggregateTagTTL: 0.1 })
-    dbComplex = new Database<ValueT>('TestComplex')
+    db = new Database<string>('Test', ioRedis, { aggregateTagTTL: 0.1 })
+    dbComplex = new Database<ValueT>('TestComplex', ioRedis)
   })
 
   afterAll(async () => {
     await db.clear()
     await dbComplex.clear()
-    redis.disconnect()
+    ioRedis.disconnect()
   })
 
   describe('static properties', () => {
