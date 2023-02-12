@@ -82,6 +82,40 @@ describe('Database', () => {
     })
   })
 
+  describe('expire entries', () => {
+    afterAll(async () => {
+      await db.clear()
+    })
+
+    it('should not set expiring values < 1', () => {
+      const uuid = uuidv4()
+      expect(async () => await db.save(uuid, 'expiring', { ttl: 0.01 })).rejects
+      expect(() => (db.defaultTTL = 0.1)).toThrow()
+    })
+
+    it('should be able to set expiring values', async () => {
+      const uuid = uuidv4()
+      // expect(db.defaultTTL).toBe(undefined)
+      // TODO try this too: db.defaultTTL = 0.001
+      await db.save(uuid, 'expiring', { ttl: 1 })
+      expect(await db.ttl(uuid)).toBeCloseTo(1)
+      expect(await db.get(uuid)).toBe('expiring')
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      expect(await db.get(uuid)).toBe(undefined)
+    })
+
+    it('should be able to set expiring values by default', async () => {
+      const uuid = uuidv4()
+      expect(db.defaultTTL).toBe(undefined)
+      db.defaultTTL = 1
+      await db.save(uuid, 'expiring')
+      expect(await db.ttl(uuid)).toBeCloseTo(1)
+      expect(await db.get(uuid)).toBe('expiring')
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      expect(await db.get(uuid)).toBe(undefined)
+    })
+  })
+
   describe('list and count entries', () => {
     let uuids: string[]
 
@@ -430,6 +464,11 @@ describe('Database', () => {
     it('should be able to list all tags', async () => {
       const data = await db.tags()
       expect(data).toStrictEqual(['even', 'math'])
+    })
+
+    it('should be able to list all tags in reverse order', async () => {
+      const data = await db.tags({ ordering: 'desc' })
+      expect(data).toStrictEqual(['math', 'even'])
     })
 
     it('should be able to filter down hierarchical tags', async () => {

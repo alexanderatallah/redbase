@@ -52,6 +52,7 @@ interface ClearParams {
 interface SaveParams<ValueT> {
   tags?: string | string[]
   sortBy?: (v: ValueT) => number
+  ttl?: number
 }
 
 /**
@@ -77,15 +78,15 @@ interface SaveParams<ValueT> {
  */
 
 class Database<ValueT> {
-  public exp: number | undefined
   public aggregateTagTTL: number
   public deletionPageSize: number
 
-  // Private, since changing this after initialization will break things
+  // Private, since changing this after initialization could break things
   private _name: string
+  private _defaultTTL: number | undefined
 
   constructor(name: string, opts: Options = {}) {
-    this.exp = opts.defaultExpiration
+    this.defaultTTL = opts.defaultExpiration
     this.deletionPageSize = opts.deletionPageSize || 2000
     this._name = name
     this.aggregateTagTTL = opts.aggregateTagTTL || 10 // seconds
@@ -93,6 +94,14 @@ class Database<ValueT> {
 
   public get name() {
     return this._name
+  }
+
+  public get defaultTTL() {
+    return this._defaultTTL
+  }
+
+  public set defaultTTL(ttl: number | undefined) {
+    this._defaultTTL = this._validateTTL(ttl)
   }
 
   async get(id: string): Promise<ValueT | undefined> {
@@ -110,7 +119,7 @@ class Database<ValueT> {
   async save(
     id: string,
     value: ValueT,
-    { tags, sortBy }: SaveParams<ValueT> = {}
+    { tags, sortBy, ttl }: SaveParams<ValueT> = {}
   ): Promise<ExecT> {
     if (!Array.isArray(tags)) {
       tags = [tags || '']
@@ -127,8 +136,9 @@ class Database<ValueT> {
 
     // Set expiration
     // TODO: provide a way to clean up tag keys
-    if (this.exp) {
-      txn = txn.expire(this._entryKey(id), this.exp)
+    ttl = this._validateTTL(ttl || this.defaultTTL)
+    if (ttl) {
+      txn = txn.expire(this._entryKey(id), ttl)
     }
     return txn.exec()
   }
@@ -248,6 +258,18 @@ class Database<ValueT> {
 
     txn = txn.del(tagKey)
     return txn.exec()
+  }
+
+  async ttl(id: string): Promise<number | undefined> {
+    const ttl = await redis.ttl(this._entryKey(id))
+    return ttl < 0 ? undefined : ttl
+  }
+
+  _validateTTL(ttl: number | undefined): number | undefined {
+    if (ttl && ttl < 1) {
+      throw new Error('Expirations in Redis must be >= 1 second')
+    }
+    return ttl
   }
 
   async _queryIds({
