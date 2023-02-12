@@ -10,28 +10,17 @@ if (!databaseName) {
 }
 const db = new Database<unknown>(databaseName)
 
-export type Response<ValueT> = {
-  actions: Record<string, string>
-  entries: { id: string; 'delete this': string; value: ValueT }[]
-}
-
 const ENTRY_PREFIX = '/entry/'
 const PAGE_SIZE = 40
 
-async function respondTo(req: http.IncomingMessage, res: http.ServerResponse) {
-  const host = `http://${req.headers.host || ''}`
-  const url = new URL(req.url || '', host)
+async function handleBrowse(
+  url: URL,
+  _req: http.IncomingMessage,
+  res: http.ServerResponse
+) {
+  const host = `${url.protocol}//${url.host}`
   const tagPath = url.pathname.slice(1)
   const offset = parseInt(url.searchParams.get('offset') || '0')
-  const shouldDelete = url.searchParams.get('method') === 'DELETE'
-  console.log(
-    `Requesting ${shouldDelete ? 'delete' : 'browse'} on path: ${tagPath}`
-  )
-
-  if (shouldDelete) {
-    return handleDelete(req, res)
-  }
-
   const absolutePath = host + '/' + tagPath
   const entries = await db.filter({
     where: tagPath,
@@ -64,7 +53,7 @@ async function respondTo(req: http.IncomingMessage, res: http.ServerResponse) {
     actions[label] = absolutePath + subTag
   }
 
-  return {
+  const json = {
     total: count,
     actions,
     entries: entries.map(e => ({
@@ -72,14 +61,16 @@ async function respondTo(req: http.IncomingMessage, res: http.ServerResponse) {
       ...e,
     })),
   }
+  res.statusCode = 200
+  res.setHeader('Content-Type', 'application/json')
+  res.end(JSON.stringify(json))
 }
 
 async function handleDelete(
+  url: URL,
   req: http.IncomingMessage,
   res: http.ServerResponse
 ) {
-  const host = `http://${req.headers.host || ''}`
-  const url = new URL(req.url || '', host)
   const tagPath = url.pathname.slice(1)
   const entryPrefix = ENTRY_PREFIX.substring(1)
   res.statusCode = 307
@@ -92,17 +83,26 @@ async function handleDelete(
     await db.clear({ where: tagPath })
     res.setHeader('Location', '/' + tagPath)
   }
-  return null
+  return res.end()
 }
 
-// Server setup
+// Server setup and routes
 
 // eslint-disable-next-line @typescript-eslint/no-misused-promises
 export const server = http.createServer(async (req, res) => {
-  res.statusCode = 200
-  res.setHeader('Content-Type', 'application/json')
-  const json = await respondTo(req, res)
-  res.end(JSON.stringify(json))
+  const host = `http://${req.headers.host || ''}`
+  const url = new URL(req.url || '', host)
+
+  const shouldDelete = url.searchParams.get('method') === 'DELETE'
+  console.log(
+    `Requesting ${shouldDelete ? 'delete' : 'browse'} on path: ${url.pathname}`
+  )
+
+  if (shouldDelete) {
+    return handleDelete(url, req, res)
+  } else {
+    return handleBrowse(url, req, res)
+  }
 })
 
 server.listen(port, hostname, () => {
