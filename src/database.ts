@@ -146,7 +146,9 @@ class Database<ValueT> {
   async clear({ where = '' }: ClearParams = {}): Promise<number> {
     const count = await this.count({ where })
     if (DEBUG) {
-      console.log(`DELETING ${count}`)
+      console.log(
+        `DELETING ${count} from ${where ? JSON.stringify(where) : 'all'}`
+      )
     }
 
     for (let offset = 0; offset < count; offset += this.deletionPageSize) {

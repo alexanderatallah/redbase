@@ -277,7 +277,7 @@ describe('Database', () => {
     })
   })
 
-  describe('index and filter entries', () => {
+  describe('filter entries', () => {
     let uuids: string[]
 
     beforeAll(async () => {
@@ -441,6 +441,15 @@ describe('Database', () => {
       })
       expect(count2).toEqual(0)
     })
+
+    it('should throw on invalid queries', () => {
+      const filter = db.filter({
+        where: {
+          OR: ['mod3_0'],
+        },
+      })
+      expect(filter).rejects
+    })
   })
 
   describe('tags() for filtering tags', () => {
@@ -462,7 +471,10 @@ describe('Database', () => {
     })
 
     it('should be able to list all tags', async () => {
-      const data = await db.tags()
+      let data = await db.tags()
+      expect(data).toStrictEqual(['even', 'math'])
+
+      data = await db.tags({ where: { OR: [] } })
       expect(data).toStrictEqual(['even', 'math'])
     })
 
