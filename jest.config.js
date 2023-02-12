@@ -1,3 +1,7 @@
+require('dotenv').config({
+  // path: '.env.test',
+})
+
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
@@ -9,7 +13,7 @@ module.exports = {
   globals: {
     'ts-jest': {
       diagnostics: false,
-      isolatedModules: true,
+      // isolatedModules: true,
     },
   },
-};
+}

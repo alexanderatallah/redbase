@@ -21,7 +21,7 @@ export class Tag {
     // Output: ["", "/a", "/a/b", "/a/b/c"]
     // Invalid: "/", "/a/b/c/"
     if (tagName?.endsWith(separator)) {
-      throw new Error('Path must not be or end with separator: ' + tagName)
+      tagName = tagName.slice(0, -1)
     }
     if (!tagName) {
       // Root node
@@ -29,10 +29,6 @@ export class Tag {
     }
     const parentName = tagName.split(separator).slice(0, -1).join(separator)
     return new Tag(tagName, Tag.fromPath(parentName))
-  }
-
-  get isRoot(): boolean {
-    return this.name === ''
   }
 
   get key(): string {

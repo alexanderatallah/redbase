@@ -17,10 +17,19 @@ describe('Tag', () => {
   it('should be able to create a root tag by path', () => {
     const tag = Tag.fromPath('')
     expect(tag).toEqual(Tag.root())
+
+    const tag2 = Tag.fromPath('/')
+    expect(tag2).toEqual(Tag.root())
   })
 
   it('should be able to create a simple tag by path', () => {
     const tag = Tag.fromPath('test')
+    expect(tag.name).toEqual('test')
+    expect(tag.parent).toEqual(Tag.root())
+  })
+
+  it('should be able to create a simple tag by path, slash suffix', () => {
+    const tag = Tag.fromPath('test/')
     expect(tag.name).toEqual('test')
     expect(tag.parent).toEqual(Tag.root())
   })
@@ -36,10 +45,5 @@ describe('Tag', () => {
     expect(tag.name).toEqual('/test/child')
     expect(tag.parent?.name).toEqual('/test')
     expect(tag.parent?.parent).toEqual(Tag.root())
-  })
-
-  it('should reject invalid paths', () => {
-    expect(() => Tag.fromPath('/test/child/')).toThrow()
-    expect(() => Tag.fromPath('/')).toThrow()
   })
 })
