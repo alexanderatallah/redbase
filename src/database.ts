@@ -2,7 +2,6 @@ import {
   ExecT,
   NodeRedisClient,
   IORedisClient,
-  ChainableCommander,
   RedisClientWrapper,
 } from './backend'
 import { Tag } from './tag'
@@ -230,11 +229,14 @@ class Database<ValueT> {
     if (ordering === 'desc') {
       args.push('REV')
     }
-    return this.client.zRange(this._tagChildrenKey(computedTag), {
-      min: offset,
-      max: offset + limit - 1,
-      rev: ordering === 'desc',
-    })
+    return this.client.zRange(
+      this._tagChildrenKey(computedTag),
+      offset,
+      offset + limit - 1,
+      {
+        REV: ordering === 'desc' || undefined,
+      }
+    )
   }
 
   async count({
@@ -246,7 +248,7 @@ class Database<ValueT> {
       typeof where === 'string'
         ? Tag.fromPath(where)
         : await this._getOrCreateEntriesQuery(where)
-    return this.client.zcount(this._tagKey(computedTag), scoreMin, scoreMax)
+    return this.client.zCount(this._tagKey(computedTag), scoreMin, scoreMax)
   }
 
   async delete(id: string): Promise<ExecT> {
@@ -256,7 +258,7 @@ class Database<ValueT> {
         `DELETING entry ${id}, the set of tags at ${tagKey}, and ${id} from those tags`
       )
     }
-    const tagPaths = await this.client.smembers(tagKey)
+    const tagPaths = await this.client.sMembers(tagKey)
     const tags = tagPaths.map(p => Tag.fromPath(p))
 
     // TODO Using unlink instead of del here doesn't seem to improve perf much
@@ -307,11 +309,11 @@ class Database<ValueT> {
     if (ordering === 'desc') {
       args.push('REV')
     }
-    return this.client.zrange(...args)
+    return this.client.zRange(...args)
   }
 
   _indexEntry(
-    txn: ChainableCommander,
+    txn: RedisClientWrapper,
     tag: Tag,
     entryId: string,
     score: number
@@ -437,12 +439,12 @@ class Database<ValueT> {
     targetTagKey: string,
     tagKeys: string[],
     type: 'union' | 'intersection'
-  ): Promise<ChainableCommander> {
+  ): Promise<RedisClientWrapper> {
     let txn = this.client.multi()
     if ((await this.client.ttl(targetTagKey)) > AGG_TAG_TTL_BUFFER) {
       return txn
     }
-    const methodName = type === 'union' ? 'zunionstore' : 'zinterstore'
+    const methodName = type === 'union' ? 'zUnionStore' : 'zInterStore'
     txn = txn[methodName](
       targetTagKey,
       tagKeys.length,
@@ -454,11 +456,11 @@ class Database<ValueT> {
   }
 
   _recursiveTagDeletion(
-    multi: ChainableCommander,
+    multi: RedisClientWrapper,
     tag: Tag
-  ): ChainableCommander {
+  ): RedisClientWrapper {
     let ret = multi.del(this._tagKey(tag))
-    const childtags = this.client.zrange(this._tagChildrenKey(tag), 0, -1)
+    const childtags = this.client.zRange(this._tagChildrenKey(tag), 0, -1)
     for (const child in childtags) {
       ret = this._recursiveTagDeletion(ret, Tag.fromPath(child))
     }

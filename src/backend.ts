@@ -9,7 +9,13 @@ import {
   ChainableCommander,
   Cluster as IORedisCluster,
 } from 'ioredis'
-import { RedisClient } from 'ioredis/built/connectors/SentinelConnector/types'
+interface ZRangeOptions {
+  REV?: true
+  LIMIT?: {
+    offset: number
+    count: number
+  }
+}
 
 export type NodeRedisClient =
   | ReturnType<typeof createRedisClient>
@@ -38,8 +44,39 @@ export class RedisClientWrapper {
     }
   }
 
+  set(key: string, value: string) {
+    if (this.nodeRedis) {
+      return this.nodeRedis.set(key, value)
+    }
+    if (this.ioRedis) {
+      return this.ioRedis.set(key, value)
+    }
+    throw new Error('No redis client available')
+  }
+
+  get(key: string) {
+    if (this.nodeRedis) {
+      return this.nodeRedis.get(key)
+    }
+    if (this.ioRedis) {
+      return this.ioRedis.get(key)
+    }
+    throw new Error('No redis client available')
+  }
+
+  ttl(key: string) {
+    if (this.nodeRedis) {
+      return this.nodeRedis.ttl(key)
+    }
+    if (this.ioRedis) {
+      return this.ioRedis.ttl(key)
+    }
+    throw new Error('No redis client available')
+  }
+
   multi() {
     if (this.nodeRedis) {
+      // TODO: remove this type cast
       return this.nodeRedis.multi()
     }
     if (this.ioRedis) {
@@ -50,33 +87,47 @@ export class RedisClientWrapper {
 
   zRange(
     key: string,
-    min: string,
-    max: string,
-    opts: Parameters<RedisClientType['ZRANGE']>[3]
+    min: number | '-inf',
+    max: number | '+inf',
+    opts?: ZRangeOptions
   ) {
     if (this.nodeRedis) {
       return this.nodeRedis.zRange(key, min, max, opts)
     }
     if (this.ioRedis) {
-      const [key, min, max] = args.slice(0, 3)
-      const optsObj = args[3]
-      const opts =
-        typeof optsObj === 'object' && !Buffer.isBuffer(optsObj)
-          ? objectToArgs(optsObj)
-          : []
-      const newArgs = [key, min, max, ...opts]
-      return this.ioRedis.zrange(...newArgs)
+      const newArgs: Array<number | string> = [key, min, max]
+      if (opts?.REV) {
+        newArgs.push('REV')
+      }
+      if (opts?.LIMIT) {
+        newArgs.push('LIMIT', opts.LIMIT.offset, opts.LIMIT.count)
+      }
+      // TODO incorporate Union types of parameter overloads when ready
+      // https://github.com/microsoft/TypeScript/issues/32164
+      return this.ioRedis.zrange(...(newArgs as [string, number, number]))
     }
     throw new Error('No redis client available')
   }
-}
 
-function objectToArgs(obj: ZRangeOptions | ZRangeByScoreOptions) {
-  return Object.entries(obj).reduce((acc, [key, value]) => {
-    acc.push(key)
-    acc.push(value.toString())
-    return acc
-  }, [] as string[])
+  sMembers(key: string) {
+    if (this.nodeRedis) {
+      return this.nodeRedis.sMembers(key)
+    }
+    if (this.ioRedis) {
+      return this.ioRedis.smembers(key)
+    }
+    throw new Error('No redis client available')
+  }
+
+  zCount(key: string, min: number | '-inf', max: number | '+inf') {
+    if (this.nodeRedis) {
+      return this.nodeRedis.zCount(key, min, max)
+    }
+    if (this.ioRedis) {
+      return this.ioRedis.zcount(key, min, max)
+    }
+    throw new Error('No redis client available')
+  }
 }
 
 type ExecT =
