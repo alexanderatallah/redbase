@@ -3,6 +3,7 @@ import {
   NodeRedisClient,
   IORedisClient,
   ChainableCommander,
+  RedisClientWrapper,
 } from './backend'
 import { Tag } from './tag'
 
@@ -84,7 +85,7 @@ interface SaveParams<ValueT> {
 class Database<ValueT> {
   public aggregateTagTTL: number
   public deletionPageSize: number
-  public client: RedisClient
+  public client: RedisOmniClient
 
   // Private, since changing this after initialization could break things
   private _name: string
@@ -95,7 +96,7 @@ class Database<ValueT> {
     client: NodeRedisClient | IORedisClient,
     opts: Options = {}
   ) {
-    this.client = client
+    this.client = new RedisOmniClient(client)
     this.defaultTTL = opts.defaultExpiration
     this.deletionPageSize = opts.deletionPageSize || 2000
     this._name = name
