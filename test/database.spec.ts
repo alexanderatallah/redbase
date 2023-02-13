@@ -9,7 +9,7 @@ describe('Database', () => {
 
   beforeAll(() => {
     // Use a low ttl to prevent stale indices between tests
-    db = new Database<string>('Test', { aggregateTagTTL: 0.1 })
+    db = new Database<string>('Test', { aggregateTagTTL: 1 })
     dbComplex = new Database<ValueT>('TestComplex')
   })
 
