@@ -85,7 +85,7 @@ interface SaveParams<ValueT> {
 class Database<ValueT> {
   public aggregateTagTTL: number
   public deletionPageSize: number
-  public client: RedisOmniClient
+  public client: RedisClientWrapper
 
   // Private, since changing this after initialization could break things
   private _name: string
@@ -96,7 +96,7 @@ class Database<ValueT> {
     client: NodeRedisClient | IORedisClient,
     opts: Options = {}
   ) {
-    this.client = new RedisOmniClient(client)
+    this.client = new RedisClientWrapper(client)
     this.defaultTTL = opts.defaultExpiration
     this.deletionPageSize = opts.deletionPageSize || 2000
     this._name = name
@@ -225,12 +225,16 @@ class Database<ValueT> {
     const args: [string, number, number] = [
       this._tagChildrenKey(computedTag),
       offset,
-      offset + limit - 1, // ZRANGE limits are inclusive
+      offset + limit - 1, // zRange limits are inclusive
     ]
     if (ordering === 'desc') {
       args.push('REV')
     }
-    return this.client.zrange(...args)
+    return this.client.zRange(this._tagChildrenKey(computedTag), {
+      min: offset,
+      max: offset + limit - 1,
+      rev: ordering === 'desc',
+    })
   }
 
   async count({
@@ -298,7 +302,7 @@ class Database<ValueT> {
     const args: [string, number, number] = [
       this._tagKey(computedTag),
       offset,
-      offset + limit - 1, // ZRANGE limits are inclusive
+      offset + limit - 1, // zRange limits are inclusive
     ]
     if (ordering === 'desc') {
       args.push('REV')

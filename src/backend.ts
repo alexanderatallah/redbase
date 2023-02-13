@@ -1,12 +1,15 @@
 import type {
   createClient as createRedisClient,
   createCluster as createRedisCluster,
+  RedisClientType,
 } from 'redis'
-import type {
+import type { RedisCommandRawReply } from '@redis/client/dist/lib/commands'
+import {
   Redis as IORedis,
+  ChainableCommander,
   Cluster as IORedisCluster,
-  ChainableCommander as IORedisChain,
 } from 'ioredis'
+import { RedisClient } from 'ioredis/built/connectors/SentinelConnector/types'
 
 export type NodeRedisClient =
   | ReturnType<typeof createRedisClient>
@@ -24,33 +27,61 @@ function isIORedisClient(
   )
 }
 
-/** Clients/ClusterClients from either `ioredis` or `redis`. */
-export function wrapRedisClient(client: NodeRedisClient | IORedisClient) {
-  const isIORedis = isIORedisClient(client)
-  return new Proxy(client, {
-    get(target, prop) {
-      const propAsMethod = prop as keyof typeof target
-      const isIORedisMethod = isIORedis && propAsMethod in target
-      if (typeof target[propAsMethod] === 'function') {
-        return new Proxy(target[propAsMethod], {
-          apply: (target, thisArg, argumentsList) => {
-            try {
-              return Reflect.apply(target, thisArg, argumentsList)
-            } catch (error: Error) {
-              if (error['name'] === 'TypeError') {
-                return Reflect.apply(target, thisArg, argumentsList)
-              }
-              throw error
-            }
-          },
-        })
-      } else {
-        return Reflect.get(target, prop)
-      }
-    },
-  })
+export class RedisClientWrapper {
+  public nodeRedis: NodeRedisClient | undefined
+  public ioRedis: IORedisClient | undefined
+  constructor(client: NodeRedisClient | IORedisClient) {
+    if (isIORedisClient(client)) {
+      this.ioRedis = client
+    } else {
+      this.nodeRedis = client
+    }
+  }
+
+  multi() {
+    if (this.nodeRedis) {
+      return this.nodeRedis.multi()
+    }
+    if (this.ioRedis) {
+      return this.ioRedis.multi()
+    }
+    throw new Error('No redis client available')
+  }
+
+  zRange(
+    key: string,
+    min: string,
+    max: string,
+    opts: Parameters<RedisClientType['ZRANGE']>[3]
+  ) {
+    if (this.nodeRedis) {
+      return this.nodeRedis.zRange(key, min, max, opts)
+    }
+    if (this.ioRedis) {
+      const [key, min, max] = args.slice(0, 3)
+      const optsObj = args[3]
+      const opts =
+        typeof optsObj === 'object' && !Buffer.isBuffer(optsObj)
+          ? objectToArgs(optsObj)
+          : []
+      const newArgs = [key, min, max, ...opts]
+      return this.ioRedis.zrange(...newArgs)
+    }
+    throw new Error('No redis client available')
+  }
 }
 
-type ExecT = [error: Error | null, result: unknown][] | null
+function objectToArgs(obj: ZRangeOptions | ZRangeByScoreOptions) {
+  return Object.entries(obj).reduce((acc, [key, value]) => {
+    acc.push(key)
+    acc.push(value.toString())
+    return acc
+  }, [] as string[])
+}
 
-export { ExecT, IORedisChain as ChainableCommander }
+type ExecT =
+  | [error: Error | null, result: unknown][]
+  | null
+  | RedisCommandRawReply
+
+export { ExecT, ChainableCommander, RedisClientType }
