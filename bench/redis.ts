@@ -13,10 +13,12 @@ import {
 } from './shared'
 
 async function setupRedis(db: Database<FakeRow>) {
-  // Put Redis in the same fsync/write mode as Postgres
+  // Put Redis in a closer fsync/write mode to Postgres
   await Promise.all([
     redis.config('SET', 'appendonly', 'yes'),
-    redis.config('SET', 'appendfsync', 'always'),
+    redis.config('SET', 'appendfsync', 'everysec'),
+    // Use the always setting for worse performance, but it's equivalent to Postgres's default level of persistence
+    // redis.config('SET', 'appendfsync', 'always'),
   ])
 
   const deletions = await db.clear()
@@ -35,7 +37,7 @@ async function main() {
     await Promise.all(
       randRows(INSERTION_BATCH).map(row =>
         db.save(row.uuid, row, {
-          tags: [`projectId-${row.projectId}`, `categoryId-${row.categoryId}`],
+          tags: [`projectId/${row.projectId}`, `categoryId/${row.categoryId}`],
           sortBy: val => val.date.getTime(),
         })
       )
@@ -44,9 +46,9 @@ async function main() {
 
   if (DO_SCROLL) {
     const where = SCROLL_MULTIINDEXED
-      ? { OR: ['projectId-1', 'categoryId-1'] }
+      ? { OR: ['projectId/1', 'categoryId/1'] }
       : SCROLL_INDEXED
-      ? 'categoryId-1'
+      ? 'categoryId/1'
       : {}
     // Paginate
     const rowCount = await db.count({ where })

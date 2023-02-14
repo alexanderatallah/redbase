@@ -274,7 +274,7 @@ class Database<ValueT> {
     return ttl < 0 ? undefined : ttl
   }
 
-  _validateTTL<T>(ttl: T): T {
+  _validateTTL<T extends number | undefined>(ttl: T): T {
     if (ttl && ttl < 1) {
       throw new Error('Expirations in Redis must be >= 1 second')
     }

@@ -12,11 +12,13 @@ import {
   SCROLL_MULTIINDEXED,
 } from './shared'
 
+const DATABASE_NAME = 'redis_benchmarking' // TODO script to create this ahead of time
+
 const client = new Client({
   host: 'localhost',
   user: 'postgres',
   password: 'postgres',
-  database: 'redis_benchmarking', // TODO script to create this ahead of time
+  database: DATABASE_NAME,
 })
 
 async function setupSchema() {
@@ -38,6 +40,11 @@ async function setupSchema() {
 }
 
 async function setupPostgres() {
+  // Put Postgres in a closer fsync/write mode to Redis.
+  // Set to "ON" (the default) if you want to compare to Redis's appendfsync=always setting.
+  await client.query(
+    `ALTER DATABASE ${DATABASE_NAME} SET synchronous_commit=OFF;`
+  )
   const result = await client.query(`
     DELETE FROM fake_rows;
   `)
