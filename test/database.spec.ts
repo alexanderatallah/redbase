@@ -1,17 +1,17 @@
-import { Database } from '../src'
+import { Redbase } from '../src'
 import { v4 as uuidv4 } from 'uuid'
 import { ioRedis } from './helpers'
 
-describe('Database', () => {
+describe('Redbase', () => {
   type ValueT = { answer: string; optional?: number[] }
 
-  let db: Database<string>
-  let dbComplex: Database<ValueT>
+  let db: Redbase<string>
+  let dbComplex: Redbase<ValueT>
 
   beforeAll(() => {
     // Use a low ttl to prevent stale indices between tests
-    db = new Database<string>('Test', ioRedis, { aggregateTagTTL: 0.1 })
-    dbComplex = new Database<ValueT>('TestComplex', ioRedis)
+    db = new Redbase<string>('Test', ioRedis, { aggregateTagTTL: 0.1 })
+    dbComplex = new Redbase<ValueT>('TestComplex', ioRedis)
   })
 
   afterAll(async () => {

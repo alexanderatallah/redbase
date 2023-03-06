@@ -10,7 +10,7 @@ const GLOBAL_PREFIX = process.env['REDIS_PREFIX'] || ''
 const DEBUG = process.env['DEBUG'] === 'true'
 const AGG_TAG_TTL_BUFFER = 0.1 // seconds
 export interface Options {
-  defaultExpiration?: number // Default expiration (in seconds) to use for each entry. Defaults to undefined
+  defaultTTL?: number // Default expiration (in seconds) to use for each entry. Defaults to undefined
   aggregateTagTTL?: number // TTL for computed query tags. Defaults to 10 seconds
   deletionPageSize?: number // Number of entries to delete at a time when calling "clear". Defaults to 2000.
 }
@@ -81,14 +81,13 @@ interface SaveParams<ValueT> {
       and delete them later
  */
 
-class Database<ValueT> {
-  public aggregateTagTTL: number
+class Redbase<ValueT> {
   public deletionPageSize: number
   public client: RedisClientWrapper
 
-  // Private, since changing this after initialization could break things
   private _name: string
   private _defaultTTL: number | undefined
+  private _aggregateTagTTL: number
 
   constructor(
     name: string,
@@ -96,10 +95,10 @@ class Database<ValueT> {
     opts: Options = {}
   ) {
     this.client = new RedisClientWrapper(client)
-    this.defaultTTL = opts.defaultExpiration
+    this._defaultTTL = this._validateTTL(opts.defaultTTL)
+    this._aggregateTagTTL = this._validateTTL(opts.aggregateTagTTL) || 10 // seconds
     this.deletionPageSize = opts.deletionPageSize || 2000
     this._name = name
-    this.aggregateTagTTL = opts.aggregateTagTTL || 10 // seconds
   }
 
   public get name() {
@@ -112,6 +111,14 @@ class Database<ValueT> {
 
   public set defaultTTL(ttl: number | undefined) {
     this._defaultTTL = this._validateTTL(ttl)
+  }
+
+  public get aggregateTagTTL() {
+    return this._aggregateTagTTL
+  }
+
+  public set aggregateTagTTL(ttl: number) {
+    this._aggregateTagTTL = this._validateTTL(ttl)
   }
 
   async get(id: string): Promise<ValueT | undefined> {
@@ -284,7 +291,7 @@ class Database<ValueT> {
     return ttl < 0 ? undefined : ttl
   }
 
-  _validateTTL(ttl: number | undefined): number | undefined {
+  _validateTTL<T extends number | undefined>(ttl: T): T {
     if (ttl && ttl < 1) {
       throw new Error('Expirations in Redis must be >= 1 second')
     }
@@ -468,4 +475,4 @@ class Database<ValueT> {
   }
 }
 
-export { Database }
+export { Redbase }

@@ -1,1 +1,1 @@
-export { Database, redis } from './database'
+export { Redbase, redis } from './database'
