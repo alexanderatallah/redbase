@@ -1,14 +1,14 @@
 import http from 'http'
-import { Database } from './database'
+import { Redbase } from './database'
 
 const hostname = '127.0.0.1'
-const port = parseInt(process.env['PORT'] || '3000')
+const port = parseInt(process.env['BROWSER_PORT'] || '3000')
 const args = process.argv.slice(2)
 const databaseName = args[0]
 if (!databaseName) {
   throw new Error('Provide a database name')
 }
-const db = new Database<unknown>(databaseName)
+const db = new Redbase<unknown>(databaseName)
 
 const ENTRY_PREFIX = '/entry/'
 const PAGE_SIZE = 40

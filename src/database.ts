@@ -77,7 +77,7 @@ interface SaveParams<ValueT> {
       and delete them later
  */
 
-class Database<ValueT> {
+class Redbase<ValueT> {
   public deletionPageSize: number
 
   private _name: string
@@ -458,4 +458,4 @@ class Database<ValueT> {
   }
 }
 
-export { Database, redis }
+export { Redbase, redis }

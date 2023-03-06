@@ -1,14 +1,15 @@
-# Redis database
+# Redbase
 
 A simple, fast, type-safe database on top of Redis.
 
 ### Features
 
-- Hierarchical indexes (useful for tagging cached data)
 - Small: only \_\_\_ lines
 - Zero npm dependencies (works with `redis`, `node-redis` and `ioredis`)
+- Hierarchical, untyped indexes (useful for tagging cached data)
+- API for easily browsing the database
 - Self-vacuuming - indexes delete themselves during bulk-delete operations, and they shrink when entries are deleted individually
-- Only core Redis - no dependencies on Redis modules (useful for deploying on platforms like Upstash).
+- Only core Redis - no dependencies on Redis modules (useful for deploying on platforms like [Upstash](https://upstash.com/)).
 - Never calls "KEYS" on your redis instance
 
 ### Use cases
@@ -30,13 +31,13 @@ Can work as a type-safe cache that you need to be able to browse for discrepanci
 ## Install
 
 ```bash
-npm install redis-database
+npm install redbase
 ```
 
 ## Usage
 
 ```ts
-import { Database } from 'redis-database'
+import { Redbase } from 'redbase'
 
 // Can use strings, numbers or buffers as well
 type MyValue = {
@@ -46,7 +47,7 @@ type MyValue = {
   }
 }
 
-const db = new Database<MyValue>('myProject')
+const db = new Redbase<MyValue>('myProject')
 
 const key = uuid()
 const value = { a: 'result' }
@@ -102,16 +103,16 @@ Default: `rainbows`
 
 Lorem ipsum.
 
-[build-img]: https://github.com/alexanderatallah/redis-database/actions/workflows/release.yml/badge.svg
-[build-url]: https://github.com/alexanderatallah/redis-database/actions/workflows/release.yml
-[downloads-img]: https://img.shields.io/npm/dt/redis-database
-[downloads-url]: https://www.npmtrends.com/redis-database
-[npm-img]: https://img.shields.io/npm/v/redis-database
-[npm-url]: https://www.npmjs.com/package/redis-database
-[issues-img]: https://img.shields.io/github/issues/alexanderatallah/redis-database
-[issues-url]: https://github.com/alexanderatallah/redis-database/issues
-[codecov-img]: https://codecov.io/gh/alexanderatallah/redis-database/branch/main/graph/badge.svg
-[codecov-url]: https://codecov.io/gh/alexanderatallah/redis-database
+[build-img]: https://github.com/alexanderatallah/redbase/actions/workflows/release.yml/badge.svg
+[build-url]: https://github.com/alexanderatallah/redbase/actions/workflows/release.yml
+[downloads-img]: https://img.shields.io/npm/dt/redbase
+[downloads-url]: https://www.npmtrends.com/redbase
+[npm-img]: https://img.shields.io/npm/v/redbase
+[npm-url]: https://www.npmjs.com/package/redbase
+[issues-img]: https://img.shields.io/github/issues/alexanderatallah/redbase
+[issues-url]: https://github.com/alexanderatallah/redbase/issues
+[codecov-img]: https://codecov.io/gh/alexanderatallah/redbase/branch/main/graph/badge.svg
+[codecov-url]: https://codecov.io/gh/alexanderatallah/redbase
 [semantic-release-img]: https://img.shields.io/badge/%20%20%F0%9F%93%A6%F0%9F%9A%80-semantic--release-e10079.svg
 [semantic-release-url]: https://github.com/semantic-release/semantic-release
 [commitizen-img]: https://img.shields.io/badge/commitizen-friendly-brightgreen.svg

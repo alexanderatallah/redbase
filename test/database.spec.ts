@@ -1,16 +1,16 @@
-import { Database, redis } from '../src'
+import { Redbase, redis } from '../src'
 import { v4 as uuidv4 } from 'uuid'
 
-describe('Database', () => {
+describe('Redbase', () => {
   type ValueT = { answer: string; optional?: number[] }
 
-  let db: Database<string>
-  let dbComplex: Database<ValueT>
+  let db: Redbase<string>
+  let dbComplex: Redbase<ValueT>
 
   beforeAll(() => {
     // Use a low ttl to prevent stale indices between tests
-    db = new Database<string>('Test', { aggregateTagTTL: 1 })
-    dbComplex = new Database<ValueT>('TestComplex')
+    db = new Redbase<string>('Test', { aggregateTagTTL: 1 })
+    dbComplex = new Redbase<ValueT>('TestComplex')
   })
 
   afterAll(async () => {

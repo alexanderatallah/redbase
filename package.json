@@ -1,6 +1,6 @@
 {
-  "name": "redis-database",
-  "version": "0.0.0-development",
+  "name": "redbase",
+  "version": "0.0.1",
   "description": "A simple, fast, type-safe database on top of Redis.",
   "main": "./lib/index.js",
   "files": [
@@ -21,7 +21,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/alexanderatallah/redis-database.git"
+    "url": "git+https://github.com/alexanderatallah/redbase.git"
   },
   "license": "MIT",
   "author": {
@@ -44,9 +44,9 @@
     "codecov"
   ],
   "bugs": {
-    "url": "https://github.com/alexanderatallah/redis-database/issues"
+    "url": "https://github.com/alexanderatallah/redbase/issues"
   },
-  "homepage": "https://github.com/alexanderatallah/redis-database#readme",
+  "homepage": "https://github.com/alexanderatallah/redbase#readme",
   "devDependencies": {
     "@faker-js/faker": "^7.6.0",
     "@ryansonshine/commitizen": "^4.2.8",
