@@ -1,14 +1,16 @@
 import Redis from 'ioredis'
-const redisUrl = process.env['REDIS_URL'] || 'redis://localhost:6379'
+const DEFAULT_URL = process.env['REDIS_URL'] || 'redis://localhost:6379'
 
-const redis = new Redis(redisUrl, {
-  enableAutoPipelining: true,
-})
+export function initRedis(url = DEFAULT_URL) {
+  const redis = new Redis(url, {
+    enableAutoPipelining: true,
+  })
 
-redis.on('error', (err: any) => {
-  console.error('Redis cache backend error', err)
-})
+  redis.on('error', (err: any) => {
+    console.error('Redbase backend error', err)
+  })
 
-type ExecT = [error: Error | null, result: unknown][] | null
+  return redis
+}
 
-export { redis, ExecT }
+export type ExecT = [error: Error | null, result: unknown][] | null

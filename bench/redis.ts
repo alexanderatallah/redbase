@@ -1,4 +1,4 @@
-import { Database, redis } from '../src/database'
+import { Redbase } from '../src/redbase'
 import {
   FakeRow,
   INSERTION_BATCH,
@@ -12,11 +12,11 @@ import {
   SCROLL_MULTIINDEXED,
 } from './shared'
 
-async function setupRedis(db: Database<FakeRow>) {
+async function setupRedis(db: Redbase<FakeRow>) {
   // Put Redis in a closer fsync/write mode to Postgres
   await Promise.all([
-    redis.config('SET', 'appendonly', 'yes'),
-    redis.config('SET', 'appendfsync', 'everysec'),
+    db.redis.config('SET', 'appendonly', 'yes'),
+    db.redis.config('SET', 'appendfsync', 'everysec'),
     // Use the always setting for worse performance, but it's equivalent to Postgres's default level of persistence
     // redis.config('SET', 'appendfsync', 'always'),
   ])
@@ -26,7 +26,7 @@ async function setupRedis(db: Database<FakeRow>) {
 }
 
 async function main() {
-  const db = new Database<FakeRow>('redis-benchmarking')
+  const db = new Redbase<FakeRow>('redis-benchmarking')
 
   if (DO_SETUP) {
     await setupRedis(db)
@@ -63,7 +63,7 @@ async function main() {
     // Delete
     await db.clear()
   }
-  await redis.quit()
+  await db.close()
 }
 
 main().catch(e => console.error(e))

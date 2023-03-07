@@ -1,1 +1,2 @@
-export { Redbase, redis } from './database'
+export { Redbase } from './redbase'
+export { initRedis } from './backend'

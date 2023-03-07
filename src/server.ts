@@ -1,5 +1,5 @@
 import http from 'http'
-import { Redbase } from './database'
+import { Redbase } from './redbase'
 
 const hostname = '127.0.0.1'
 const port = parseInt(process.env['BROWSER_PORT'] || '3000')

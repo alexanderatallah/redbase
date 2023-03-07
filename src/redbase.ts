@@ -1,12 +1,14 @@
-import { redis, ExecT } from './backend'
-import { ChainableCommander } from 'ioredis'
+import { initRedis, ExecT } from './backend'
+import { ChainableCommander, Redis } from 'ioredis'
 import { Tag } from './tag'
 
 const GLOBAL_PREFIX = process.env['REDIS_PREFIX'] || ''
 const DEBUG = process.env['DEBUG'] === 'true'
 const AGG_TAG_TTL_BUFFER = 0.1 // seconds
 export interface Options {
-  defaultTTL?: number // Default expiration (in seconds) to use for each entry. Defaults to undefined
+  redisInstance?: Redis // Redis instance to use. Defaults to undefined.
+  redisUrl?: string // Redis URL to use. Defaults to undefined.
+  defaultTTL?: number // Default expiration (in seconds) to use for each entry. Defaults to undefined.
   aggregateTagTTL?: number // TTL for computed query tags. Defaults to 10 seconds
   deletionPageSize?: number // Number of entries to delete at a time when calling "clear". Defaults to 2000.
 }
@@ -77,14 +79,16 @@ interface SaveParams<ValueT> {
       and delete them later
  */
 
-class Redbase<ValueT> {
+export class Redbase<ValueT> {
   public deletionPageSize: number
+  public redis: Redis
 
   private _name: string
   private _defaultTTL: number | undefined
   private _aggregateTagTTL: number
 
   constructor(name: string, opts: Options = {}) {
+    this.redis = opts.redisInstance || initRedis(opts.redisUrl)
     this._defaultTTL = this._validateTTL(opts.defaultTTL)
     this._aggregateTagTTL = this._validateTTL(opts.aggregateTagTTL) || 10 // seconds
     this.deletionPageSize = opts.deletionPageSize || 2000
@@ -135,7 +139,7 @@ class Redbase<ValueT> {
     const score = sortBy ? sortBy(value) : new Date().getTime()
     const tagInstances = tags.map(p => Tag.fromPath(p))
 
-    let txn = redis.multi().set(this._entryKey(id), JSON.stringify(value))
+    let txn = this.redis.multi().set(this._entryKey(id), JSON.stringify(value))
 
     for (const tag of tagInstances) {
       txn = this._indexEntry(txn, tag, id, score)
@@ -181,7 +185,7 @@ class Redbase<ValueT> {
         ? where.AND
         : [] // Possible entries left
 
-    let txn = redis.multi()
+    let txn = this.redis.multi()
     for (const tagPath of tagPathsToDelete) {
       txn = this._recursiveTagDeletion(txn, Tag.fromPath(tagPath))
     }
@@ -226,7 +230,7 @@ class Redbase<ValueT> {
     if (ordering === 'desc') {
       args.push('REV')
     }
-    return redis.zrange(...args)
+    return this.redis.zrange(...args)
   }
 
   async count({
@@ -238,7 +242,7 @@ class Redbase<ValueT> {
       typeof where === 'string'
         ? Tag.fromPath(where)
         : await this._getOrCreateEntriesQuery(where)
-    return redis.zcount(this._tagKey(computedTag), scoreMin, scoreMax)
+    return this.redis.zcount(this._tagKey(computedTag), scoreMin, scoreMax)
   }
 
   async delete(id: string): Promise<ExecT> {
@@ -248,11 +252,11 @@ class Redbase<ValueT> {
         `DELETING entry ${id}, the set of tags at ${tagKey}, and ${id} from those tags`
       )
     }
-    const tagPaths = await redis.smembers(tagKey)
+    const tagPaths = await this.redis.smembers(tagKey)
     const tags = tagPaths.map(p => Tag.fromPath(p))
 
     // TODO Using unlink instead of del here doesn't seem to improve perf much
-    let txn = redis.multi()
+    let txn = this.redis.multi()
     txn = txn.del(this._entryKey(id))
 
     for (let tag of tags) {
@@ -270,8 +274,12 @@ class Redbase<ValueT> {
   }
 
   async ttl(id: string): Promise<number | undefined> {
-    const ttl = await redis.ttl(this._entryKey(id))
+    const ttl = await this.redis.ttl(this._entryKey(id))
     return ttl < 0 ? undefined : ttl
+  }
+
+  async close(): Promise<string> {
+    return this.redis.quit()
   }
 
   _validateTTL<T extends number | undefined>(ttl: T): T {
@@ -299,7 +307,7 @@ class Redbase<ValueT> {
     if (ordering === 'desc') {
       args.push('REV')
     }
-    return redis.zrange(...args)
+    return this.redis.zrange(...args)
   }
 
   _indexEntry(
@@ -328,7 +336,7 @@ class Redbase<ValueT> {
   // Helpers
 
   _getRawValue(id: string): Promise<string | null> {
-    return redis.get(this._entryKey(id))
+    return this.redis.get(this._entryKey(id))
   }
 
   _entryKey(id: string): string {
@@ -430,8 +438,8 @@ class Redbase<ValueT> {
     tagKeys: string[],
     type: 'union' | 'intersection'
   ): Promise<ChainableCommander> {
-    let txn = redis.multi()
-    if ((await redis.ttl(targetTagKey)) > AGG_TAG_TTL_BUFFER) {
+    let txn = this.redis.multi()
+    if ((await this.redis.ttl(targetTagKey)) > AGG_TAG_TTL_BUFFER) {
       return txn
     }
     const methodName = type === 'union' ? 'zunionstore' : 'zinterstore'
@@ -450,12 +458,10 @@ class Redbase<ValueT> {
     tag: Tag
   ): ChainableCommander {
     let ret = multi.del(this._tagKey(tag))
-    const childtags = redis.zrange(this._tagChildrenKey(tag), 0, -1)
+    const childtags = this.redis.zrange(this._tagChildrenKey(tag), 0, -1)
     for (const child in childtags) {
       ret = this._recursiveTagDeletion(ret, Tag.fromPath(child))
     }
     return ret.del(this._tagChildrenKey(tag))
   }
 }
-
-export { Redbase, redis }

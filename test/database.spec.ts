@@ -1,4 +1,4 @@
-import { Redbase, redis } from '../src'
+import { Redbase } from '../src'
 import { v4 as uuidv4 } from 'uuid'
 
 describe('Redbase', () => {
@@ -16,7 +16,8 @@ describe('Redbase', () => {
   afterAll(async () => {
     await db.clear()
     await dbComplex.clear()
-    redis.disconnect()
+    await db.close()
+    await dbComplex.close()
   })
 
   describe('static properties', () => {

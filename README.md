@@ -1,32 +1,42 @@
 # Redbase
 
-A simple, fast, type-safe database on top of Redis.
+A simple, fast, indexed, and type-safe database on top of Redis. Can be used as a queryable, browsable cache.
 
-### Features
+## Features
 
-- Small: only \_\_\_ lines
-- Zero npm dependencies (works with `redis`, `node-redis` and `ioredis`)
-- Hierarchical, untyped indexes (useful for tagging cached data)
-- API for easily browsing the database
-- Self-vacuuming - indexes delete themselves during bulk-delete operations, and they shrink when entries are deleted individually
-- Only core Redis - no dependencies on Redis modules (useful for deploying on platforms like [Upstash](https://upstash.com/)).
-- Never calls "KEYS" on your redis instance
+- **Simple**: less than 500 lines. No dependencies - for now, just `ioredis` as a peer. No modules. You can copy-paste the code if you want.
+- **Fast**: Compared to optimized Postgres, 30% faster at scrolling or deleting unindexed data. See [benchmark](#benchmarks) considerations below.
+- **Indexed**: Supports hierarchical [tags](#tags), a lightweight primitive for indexing your data.
+- **Browsable**: browser-friendly API included for scrolling the database and browsing by tag.
 
-### Use cases
+_Non-features_
 
-Can work as a type-safe cache that you need to be able to browse for discrepancies or query in a light-weight way. Some examples:
+- No dependencies on Redis modules. Useful for deploying on platforms like [Upstash](https://upstash.com/).
 
-1. Cache prompts and completions from large language models to avoid paying for duplicate computation. Index them with hierarchical tags like `"user1/project1"` and then easily create an endpoint to browse both `user1`'s content across all projects and just their content for `project1`.
+- Never calls "KEYS" on redis instance, which is expensive. Uses simple [set theory](https://github.com/alexanderatallah/redbase/blob/main/src/database.ts#L437) to implement query logic.
 
-2. TODO!
+In three lines:
+```ts
+import { Redbase } from 'redbase'
+const db = new Redbase<MyDataType>('my-project')
+const value = await db.get(id) // type: MyDataType
+```
 
 [![npm package][npm-img]][npm-url]
-[![Build Status][build-img]][build-url]
 [![Downloads][downloads-img]][downloads-url]
 [![Issues][issues-img]][issues-url]
 [![Code Coverage][codecov-img]][codecov-url]
 [![Commitizen Friendly][commitizen-img]][commitizen-url]
 [![Semantic Release][semantic-release-img]][semantic-release-url]
+
+- [Redbase](#redbase)
+  - [Features](#features)
+  - [Install](#install)
+  - [Usage](#usage)
+  - [Core concepts](#core-concepts)
+    - [Entities](#entities)
+    - [Tags](#tags)
+  - [Benchmarks](#benchmarks)
 
 ## Install
 
@@ -47,7 +57,9 @@ type MyValue = {
   }
 }
 
-const db = new Redbase<MyValue>('myProject')
+// Options can also use your own ioredis instance if already defined,
+// as `redisInstance`
+const db = new Redbase<MyValue>('myProject', { redisUrl: 'redis://...' })
 
 const key = uuid()
 const value = { a: 'result' }
@@ -60,7 +72,6 @@ await db.get(key) // value
 
 // Type safety!
 
-await db.get('test2') // Type error on key
 await db.set(key, { c: 'result2' }) // Type error on value
 
 // Browsing results
@@ -72,36 +83,29 @@ await db.set(uuid(), { a: 'hi' }, ['user1/project1'])
 await db.set(uuid(), { a: 'there' }, ['user1/project2'])
 await db.set(uuid(), { a: 'bye' }, ['user2/project1'])
 
-data = await db.index()
+data = await db.filter()
 assertEquals(data.length, 3)
 
-data = await db.index('user1')
+data = await db.filter({ where: 'user1'})
 assertEquals(data.length, 2)
 
-// TODO data = await db.index("project1")
-// assertEquals(data.length, ??)
+const tags = await db.tags("user1")
+assertEquals(tags.length, 2)
 ```
 
-## API
+## Core concepts
 
-### myPackage(input, options?)
+There are two main concepts in Redbase: entities and tags.
 
-#### input
+### Entities
 
-Type: `string`
+Entities are type-checked.
 
-Lorem ipsum.
+### Tags
 
-#### options
+Tags are ort of self-cleaning: indexes delete themselves during bulk-delete operations, and they shrink when entries are deleted individually.
 
-Type: `object`
-
-##### postfix
-
-Type: `string`
-Default: `rainbows`
-
-Lorem ipsum.
+## Benchmarks
 
 [build-img]: https://github.com/alexanderatallah/redbase/actions/workflows/release.yml/badge.svg
 [build-url]: https://github.com/alexanderatallah/redbase/actions/workflows/release.yml
