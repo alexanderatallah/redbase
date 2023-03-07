@@ -5,9 +5,9 @@ A simple, fast, indexed, and type-safe database on top of Redis. Can be used as 
 ## Features
 
 - **Simple**: less than 500 lines. No dependencies - for now, just `ioredis` as a peer. No modules. You can copy-paste the code if you want.
-- **Fast**: Compared to optimized Postgres, 30% faster at scrolling or deleting unindexed data. See [benchmark](#benchmarks) considerations below.
+- **Fast**: Compared to optimized Postgres, 150% faster at paginating unindexed data. See [all benchmarks](#benchmarks) below.
 - **Indexed**: Supports hierarchical [tags](#tags), a lightweight primitive for indexing your data.
-- **Browsable**: browser-friendly API included for scrolling the database and browsing by tag.
+- **Browsable**: browser-friendly API included for paginating and browsing by tag.
 
 _Non-features_
 
@@ -15,12 +15,15 @@ _Non-features_
 
 - Never calls "KEYS" on redis instance, which is expensive. Uses simple [set theory](https://github.com/alexanderatallah/redbase/blob/main/src/database.ts#L437) to implement query logic.
 
-In three lines:
+In a few lines:
 ```ts
 import { Redbase } from 'redbase'
 const db = new Redbase<MyDataType>('my-project')
 const value = await db.get(id) // type: MyDataType
 ```
+
+Exploration API:
+`npm run server`
 
 [![npm package][npm-img]][npm-url]
 [![Downloads][downloads-img]][downloads-url]
@@ -34,9 +37,14 @@ const value = await db.get(id) // type: MyDataType
   - [Install](#install)
   - [Usage](#usage)
   - [Core concepts](#core-concepts)
-    - [Entities](#entities)
+    - [Entries](#entries)
     - [Tags](#tags)
+  - [Example: Prompt Cache](#example-prompt-cache)
   - [Benchmarks](#benchmarks)
+    - [For the cache use-case](#for-the-cache-use-case)
+    - [For the database use-case](#for-the-database-use-case)
+    - [Results](#results)
+- [License](#license)
 
 ## Install
 
@@ -71,41 +79,148 @@ await db.set(key, value)
 await db.get(key) // value
 
 // Type safety!
-
 await db.set(key, { c: 'result2' }) // Type error on value
 
 // Browsing results
-let data = await db.entries()
-assertDeepEquals(data, [{ id: key, value: { a: 'result' } }])
+let data = await db.filter()
+assertEqual(data, [{ id: key, value }])
+assertEqual(await db.count(), 1)
 
-// Hierarchical indexes
-await db.set(uuid(), { a: 'hi' }, ['user1/project1'])
-await db.set(uuid(), { a: 'there' }, ['user1/project2'])
-await db.set(uuid(), { a: 'bye' }, ['user2/project1'])
+// Hierarchical indexes, using a customizable tag separator (default: '/')
+await Promise.all([
+  // Redis auto-pipelines these calls into one fast request!
+  db.set(uuid(), { a: 'hi' }, ['user1/project1']),
+  db.set(uuid(), { a: 'there' }, ['user1/project2']),
+  db.set(uuid(), { a: 'bye' }, ['user2/project1'])
+])
 
 data = await db.filter()
-assertEquals(data.length, 3)
+assertEqual(data.length, 4)
 
+// WHERE queries, using tag names
 data = await db.filter({ where: 'user1'})
-assertEquals(data.length, 2)
+assertEqual(data.length, 2)
 
+// AND and OR queries:
+data = await db.filter({ where: {OR: ['user1', 'user2']}})
+assertEqual(data.length, 3)
+
+const count = await db.count({ where: {OR: ['user1', 'user2']}})
+assertEqual(count, 3)
+
+// See all your indexes:
 const tags = await db.tags("user1")
-assertEquals(tags.length, 2)
+assertEqual(tags.length, 2)
+
+// Clear just parts of the database:
+const numberDeleted = await db.clear({ where: 'user2' })
+assertEqual(numberDeleted, 1)
 ```
 
 ## Core concepts
 
-There are two main concepts in Redbase: entities and tags.
+There are two main concepts in Redbase: entries and tags. This section explains them and gives a sample use case: caching / browsing prompts and completions from a large language model.
 
-### Entities
+### Entries
 
-Entities are type-checked.
+An entry is composed of an `id` and a `value`:
+- Values are type-checked, but schemaless.
+- IDs are strings. You are in charge of creating them, e.g. by hashing your value, making a UUID, using some external id, etc.
+- If you have a non-string key that you want to use with your value (as is the case when you're storing prompts + completions), you can combine them into one value type. See [the prompt cache example](#example-prompt-cache) below.
 
 ### Tags
 
-Tags are ort of self-cleaning: indexes delete themselves during bulk-delete operations, and they shrink when entries are deleted individually.
+Tags are a lightweight primitive for indexing your values. You attach them at insert-time, and they are schemaless. This makes them simple and flexible for many use cases.
+
+Calling `db.filter({ where: { AND: [...]}})` etc. allows you to compose them together as a list.
+
+Tags are sort of self-cleaning: indexes delete themselves during bulk-delete operations, and they shrink when entries are deleted individually. However, when the last entry for an index is deleted, the index is not. This shouldn't cause a significant zombie index issue unless you're creating and wiping out an unbounded number of tags.
+
+Tags can get unruly, you you can keep them organized by nesting them:
+`parentindex/childindex`. This effectively allows you to group your indexes. Call `db.tags("parentindex")` to get all the children tags.
+
+As you might expect, when indexing an entry under `parentindex/childindex` the entry is automatically indexed under `parentindex` as well. This makes it easy to build an easy url-based cache exploration server. Call `db.filter({ where: 'parentindex' })` to get all entries for all children tags.
+
+
+## Example: Prompt Cache
+
+Sample code for setting up the prompt cache for a large language model (LLM), like [OpenAI](https://platform.openai.com/docs/introduction):
+
+```ts
+import { CreateCompletionRequest, CreateCompletionResponse, OpenAIApi } from 'openai'
+
+export const CACHE_NAME = 'promptCache'
+const CACHE_EXPIRATION = 60 * 60 * 24 * 7 * 4 * 2 // 2 months
+
+export type PromptQuery = CreateCompletionRequest
+export type PromptResult = CreateCompletionResponse
+export type PromptEntry = { prompt: PromptQuery, completion: PromptResult }
+export const promptCache = new PromptCache<PromptEntry>(CACHE_NAME, { defaultTTL: CACHE_EXPIRATION })
+```
+
+Now, you can cache and index your prompts by doing this:
+
+```ts
+const tags = [
+  `user-${user || ""}`,
+  `url-${encodeURIComponent(url)}/leaf-${leafNumber}`
+]
+const payload = { ...requestData, user }
+const response = await openai.createCompletion(payload)
+await summaryCache.save(id, {
+  prompt: requestData,
+  completion: response.data
+}, { tags })
+```
+
+To browse, paginate, and filter your prompts and completions, just fire up the API:
+
+`npm run server`
+
+![API explorer](files/explorer.png)
 
 ## Benchmarks
+
+**Note:** I'm very new to benchmarking open-sourced code, and would appreciate pull requests here! One issue, for example, is that increasing the number of runs can cause the data to scale up (depending on which benchmarks you're running), which seems to e.g. make Redis win on pagination by a larger margin.
+
+This project uses [hyperfine](https://github.com/sharkdp/hyperfine) to compare Redis in a persistent mode with Postgres in an optimized mode. **Yes, this is comparing apples to oranges.** I decided to do it anyway because:
+
+1. A big question this project answers is "how should I implement a lightweight, queryable cache?" Redis and Postgres are the two backend choices that pop up frequently.
+
+2. Not many people seem to know that Redis has an append-only file (AOF) persistence option. I was one of those people, and curious to see how it performed.
+
+3. I wanted to compare with an on-disk database solution to get a sense of where the advantage lies for using a persistent, in-memory database as a primary database.
+
+All that said, the benchmarks put Redis and Postgres in [roughly equivalent persistence settings](http://oldblog.antirez.com/post/redis-persistence-demystified.html), which you can play with:
+
+- Redis is set up using `SET appendfsync everysec`, which issues `fsync` calls between 0 and 2 seconds.
+
+- Postgres is set up using `SET synchronous_commit=OFF`, which delays writing to WAL by 0.6 seconds.
+
+These settings were chosen because they somewhat balance the speed needs of a cache with the durability needs of a database. To use one or the other:
+
+### For the cache use-case
+Comment-out the Redis config lines in `setupRedis` in `/bench/redis`. Similarly configure your project's Redis setup, of course, though it's the Redis default.
+
+### For the database use-case
+Comment-in the Redis config line `redis.config('SET', 'appendfsync', 'always')` in `/bench/redis.ts`. Similarly configure your project's Redis setup, of course.
+
+Comment-out the call to `ALTER DATABASE ... SET synchronous_commit=OFF;` in `/bench/postgres.ts`. This reverts to the default (fully-persistent) Postgres setting.
+
+### Results
+- **Inserting data**: Tie
+- **Paginating unindexed data**: Redis is ~150% faster
+- **Single-index pagination**: Postgres is ~50% faster
+- **Joint-index pagination**: Postgres is ~60% faster
+- **Inserting and deleting data**: Redis is ~25% faster
+
+Results on Apple M1 Max, 2021:
+![Insert and scroll](files/insert_and_scroll.png)
+![Scroll along an index](files/index_scrolling.png)
+![Delete data](files/deleting.png)
+
+# License
+MIT
 
 [build-img]: https://github.com/alexanderatallah/redbase/actions/workflows/release.yml/badge.svg
 [build-url]: https://github.com/alexanderatallah/redbase/actions/workflows/release.yml

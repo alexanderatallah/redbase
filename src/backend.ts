@@ -1,14 +1,18 @@
 import Redis from 'ioredis'
 const DEFAULT_URL = process.env['REDIS_URL'] || 'redis://localhost:6379'
 
-export function initRedis(url = DEFAULT_URL) {
+const defaultLogger = (err: unknown) => {
+  console.error('Redbase backend error', err)
+}
+
+export function initRedis(url = DEFAULT_URL, errorLogger = defaultLogger) {
   const redis = new Redis(url, {
     enableAutoPipelining: true,
   })
 
-  redis.on('error', (err: any) => {
-    console.error('Redbase backend error', err)
-  })
+  if (errorLogger) {
+    redis.on('error', errorLogger)
+  }
 
   return redis
 }
