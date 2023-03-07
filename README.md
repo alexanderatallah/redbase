@@ -36,14 +36,14 @@ Exploration API:
   - [Features](#features)
   - [Install](#install)
   - [Usage](#usage)
-  - [Core concepts](#core-concepts)
-    - [Entries](#entries)
-    - [Tags](#tags)
+- [Core concepts](#core-concepts)
+  - [Entries](#entries)
+  - [Tags](#tags)
   - [Example: Prompt Cache](#example-prompt-cache)
-  - [Benchmarks](#benchmarks)
-    - [For the cache use-case](#for-the-cache-use-case)
-    - [For the database use-case](#for-the-database-use-case)
-    - [Results](#results)
+- [Benchmarks](#benchmarks)
+  - [For the cache use-case](#for-the-cache-use-case)
+  - [For the database use-case](#for-the-database-use-case)
+  - [Results](#results)
 - [License](#license)
 
 ## Install
@@ -117,18 +117,18 @@ const numberDeleted = await db.clear({ where: 'user2' })
 assertEqual(numberDeleted, 1)
 ```
 
-## Core concepts
+# Core concepts
 
-There are two main concepts in Redbase: entries and tags. This section explains them and gives a sample use case: caching / browsing prompts and completions from a large language model.
+There are two main concepts in Redbase: entries and tags. This section explains them and then provides example code combining both.
 
-### Entries
+## Entries
 
 An entry is composed of an `id` and a `value`:
 - Values are type-checked, but schemaless.
 - IDs are strings. You are in charge of creating them, e.g. by hashing your value, making a UUID, using some external id, etc.
 - If you have a non-string key that you want to use with your value (as is the case when you're storing prompts + completions), you can combine them into one value type. See [the prompt cache example](#example-prompt-cache) below.
 
-### Tags
+## Tags
 
 Tags are a lightweight primitive for indexing your values. You attach them at insert-time, and they are schemaless. This makes them simple and flexible for many use cases.
 
@@ -179,7 +179,7 @@ To browse, paginate, and filter your prompts and completions, just fire up the A
 
 ![API explorer](files/explorer.png)
 
-## Benchmarks
+# Benchmarks
 
 **Note:** I'm very new to benchmarking open-sourced code, and would appreciate pull requests here! One issue, for example, is that increasing the number of runs can cause the data to scale up (depending on which benchmarks you're running), which seems to e.g. make Redis win on pagination by a larger margin.
 
@@ -199,15 +199,15 @@ All that said, the benchmarks put Redis and Postgres in [roughly equivalent pers
 
 These settings were chosen because they somewhat balance the speed needs of a cache with the durability needs of a database. To use one or the other:
 
-### For the cache use-case
+## For the cache use-case
 Comment-out the Redis config lines in `setupRedis` in `/bench/redis`. Similarly configure your project's Redis setup, of course, though it's the Redis default.
 
-### For the database use-case
+## For the database use-case
 Comment-in the Redis config line `redis.config('SET', 'appendfsync', 'always')` in `/bench/redis.ts`. Similarly configure your project's Redis setup, of course.
 
 Comment-out the call to `ALTER DATABASE ... SET synchronous_commit=OFF;` in `/bench/postgres.ts`. This reverts to the default (fully-persistent) Postgres setting.
 
-### Results
+## Results
 - **Inserting data**: Tie
 - **Paginating unindexed data**: Redis is ~150% faster
 - **Single-index pagination**: Postgres is ~50% faster
