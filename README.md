@@ -2,18 +2,18 @@
 
 A simple, fast, indexed, and type-safe database on top of Redis. Can be used as a queryable, browsable cache.
 
-## Features
+## Goals
 
-- **Simple**: less than 500 lines. No dependencies - for now, just `ioredis` as a peer. No modules. You can copy-paste the code if you want.
+- **Simple**: less than 500 lines. Only one dependency, `ioredis`. No modules. You can copy-paste the code instead if you want.
 - **Fast**: Compared to optimized Postgres, 150% faster at paginating unindexed data. See [all benchmarks](#benchmarks) below.
-- **Indexed**: Supports hierarchical [tags](#tags), a lightweight primitive for indexing your data.
-- **Browsable**: browser-friendly API included for paginating and browsing by tag.
+- **Indexable**: Supports hierarchical [tags](#tags), a lightweight primitive for indexing your data.
+- **Browsable**: [browser-friendly API](#example-browsing-your-data) included for paginating and browsing by tag.
 
-_Non-features_
+_Non-goals_
 
 - No dependencies on Redis modules. Useful for deploying on platforms like [Upstash](https://upstash.com/).
 
-- Never calls "KEYS" on redis instance, which is expensive. Uses simple [set theory](https://github.com/alexanderatallah/redbase/blob/main/src/database.ts#L437) to implement query logic.
+- Never queries "KEYS" on your redis instance, which is expensive. Uses simple [set theory](https://github.com/alexanderatallah/redbase/blob/main/src/database.ts#L437) and data structures to implement query logic.
 
 In a few lines:
 ```ts
@@ -33,13 +33,14 @@ Exploration API:
 [![Semantic Release][semantic-release-img]][semantic-release-url]
 
 - [Redbase](#redbase)
-  - [Features](#features)
+  - [Goals](#goals)
   - [Install](#install)
   - [Usage](#usage)
   - [Core concepts](#core-concepts)
     - [Entries](#entries)
     - [Tags](#tags)
     - [Example: Prompt Cache](#example-prompt-cache)
+    - [Example: Browsing Your Data](#example-browsing-your-data)
   - [Benchmarks](#benchmarks)
     - [For the cache use-case](#for-the-cache-use-case)
     - [For the database use-case](#for-the-database-use-case)
@@ -130,16 +131,18 @@ An entry is composed of an `id` and a `value`:
 
 ### Tags
 
-Tags are a lightweight primitive for indexing your values. You attach them at insert-time, and they are schemaless. This makes them simple and flexible for many use cases.
+Tags are a lightweight primitive for indexing your values. You attach them at insert-time, and they are schemaless. This makes them simple and flexible for many use cases. It also allows you to index values by external attributes (that aren't a part of the value itself: [example](#example-prompt-cache)).
 
 Calling `db.filter({ where: { AND: [...]}})` etc. allows you to compose them together as a list.
 
 Tags are sort of self-cleaning: indexes delete themselves during bulk-delete operations, and they shrink when entries are deleted individually. However, when the last entry for an index is deleted, the index is not. This shouldn't cause a significant zombie index issue unless you're creating and wiping out an unbounded number of tags.
 
 Tags can get unruly, you you can keep them organized by nesting them:
-`parentindex/childindex`. This effectively allows you to group your indexes. Call `db.tags("parentindex")` to get all the children tags.
+`parentindex/childindex`. This effectively allows you to group your indexes, and makes [browsing](#example-browsing-your-data) your data easier and more fun.
 
-As you might expect, when indexing an entry under `parentindex/childindex` the entry is automatically indexed under `parentindex` as well. This makes it easy to build an easy url-based cache exploration server. Call `db.filter({ where: 'parentindex' })` to get all entries for all children tags.
+Call `db.tags("parentindex")` to get all the children tags.
+
+As you might expect, when indexing an entry under `parentindex/childindex` the entry is automatically indexed under `parentindex` as well. This makes it easy to build a url-based [cache exploration server](#example-browsing-your-data). Call `db.filter({ where: 'parentindex' })` to get all entries for all children tags.
 
 
 ### Example: Prompt Cache
@@ -155,12 +158,13 @@ const CACHE_EXPIRATION = 60 * 60 * 24 * 7 * 4 * 2 // 2 months
 export type PromptQuery = CreateCompletionRequest
 export type PromptResult = CreateCompletionResponse
 export type PromptEntry = { prompt: PromptQuery, completion: PromptResult }
-export const promptCache = new PromptCache<PromptEntry>(CACHE_NAME, { defaultTTL: CACHE_EXPIRATION })
+export const promptCache = new Redbase<PromptEntry>(CACHE_NAME, { defaultTTL: CACHE_EXPIRATION })
 ```
 
 Now, you can cache and index your prompts by doing this:
 
 ```ts
+// Tags can include metadata that isn't present in the value itself.
 const tags = [
   `user-${user || ""}`,
   `url-${encodeURIComponent(url)}/leaf-${leafNumber}`
@@ -173,7 +177,9 @@ await summaryCache.save(id, {
 }, { tags })
 ```
 
-To browse, paginate, and filter your prompts and completions, just fire up the API:
+### Example: Browsing Your Data
+
+To browse, paginate, filter, and delete your data directly from a browser, just fire up the API:
 
 `npm run server`
 
