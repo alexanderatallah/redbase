@@ -192,9 +192,9 @@ To browse, paginate, filter, and delete your data directly from a browser, just 
 
 This project uses [hyperfine](https://github.com/sharkdp/hyperfine) to compare Redis in a persistent mode with Postgres in an optimized mode. **Yes, this is comparing apples to oranges.** I decided to do it anyway because:
 
-1. A big question this project answers is "how should I implement a lightweight, queryable cache?" Redis and Postgres are the two backend choices that pop up frequently.
+1. A big question this project answers is "how can I have a queryable, browsable db that also works well as a cache?" Redis and Postgres are two backend choices that pop up frequently.
 
-2. Not many people seem to know that Redis has an append-only file (AOF) persistence option. I was one of those people, and curious to see how it performed.
+2. Not many people seem to know that Redis has an append-only file (AOF) persistence option. I heard about this and was curious to see how it performed.
 
 3. I wanted to compare with an on-disk database solution to get a sense of where the advantage lies for using a persistent, in-memory database as a primary database.
 
