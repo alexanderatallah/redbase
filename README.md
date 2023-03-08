@@ -77,12 +77,12 @@ const value = { a: 'result' }
 
 await db.get(key) // undefined
 
-await db.set(key, value)
+await db.save(key, value)
 
 await db.get(key) // value
 
 // Type safety!
-await db.set(key, { c: 'result2' }) // Type error on value
+await db.save(key, { c: 'poorly formed object' }) // Type error on value
 
 // Browsing results
 let data = await db.filter()
@@ -92,9 +92,9 @@ assertEqual(await db.count(), 1)
 // Hierarchical indexes, using a customizable tag separator (default: '/')
 await Promise.all([
   // Redis auto-pipelines these calls into one fast request!
-  db.set(uuid(), { a: 'hi' }, { tags: ['user1/project1'] }),
-  db.set(uuid(), { a: 'there' }, { tags: ['user1/project2'] }),
-  db.set(uuid(), { a: 'bye' }, { tags: ['user2/project1'] })
+  db.save(uuid(), { a: 'hi' }, { tags: ['user1/project1'] }),
+  db.save(uuid(), { a: 'there' }, { tags: ['user1/project2'] }),
+  db.save(uuid(), { a: 'bye' }, { tags: ['user2/project1'] })
 ])
 
 data = await db.filter()
