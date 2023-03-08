@@ -12,7 +12,7 @@ A simple, fast, indexed, and type-safe database on top of Redis. Can be used as 
 _Non-goals_
 
 - No dependencies on Redis modules. Useful for deploying on platforms like [Upstash](https://upstash.com/).
-- Never queries "KEYS" on your redis instance, which is expensive. Uses simple [set theory](https://github.com/alexanderatallah/redbase/blob/main/src/database.ts#L437) and data structures to implement query logic.
+- Never queries "KEYS" on your redis instance, which is expensive. Uses simple [set theory](https://github.com/alexanderatallah/redbase/blob/main/src/redbase.ts#L445) and data structures to implement query logic.
 
 In a few lines:
 ```ts
