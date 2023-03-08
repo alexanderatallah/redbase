@@ -38,6 +38,8 @@ Exploration API:
   - [Goals](#goals)
   - [Install](#install)
   - [Usage](#usage)
+    - [One-to-Many Relationships](#one-to-many-relationships)
+    - [Many-to-Many Relationships](#many-to-many-relationships)
   - [Core concepts](#core-concepts)
     - [Entries](#entries)
     - [Tags](#tags)
@@ -77,12 +79,12 @@ const value = { a: 'result' }
 
 await db.get(key) // undefined
 
-await db.set(key, value)
+await db.save(key, value)
 
 await db.get(key) // value
 
 // Type safety!
-await db.set(key, { c: 'result2' }) // Type error on value
+await db.save(key, { c: 'result2' }) // Type error on value
 
 // Browsing results
 let data = await db.filter()
@@ -92,9 +94,9 @@ assertEqual(await db.count(), 1)
 // Hierarchical indexes, using a customizable tag separator (default: '/')
 await Promise.all([
   // Redis auto-pipelines these calls into one fast request!
-  db.set(uuid(), { a: 'hi' }, { tags: ['user1/project1'] }),
-  db.set(uuid(), { a: 'there' }, { tags: ['user1/project2'] }),
-  db.set(uuid(), { a: 'bye' }, { tags: ['user2/project1'] })
+  db.save(uuid(), { a: 'hi' }, { tags: ['user1/project1'] }),
+  db.save(uuid(), { a: 'there' }, { tags: ['user1/project2'] }),
+  db.save(uuid(), { a: 'bye' }, { tags: ['user2/project1'] })
 ])
 
 data = await db.filter()
@@ -108,8 +110,8 @@ assertEqual(data.length, 2)
 data = await db.filter({ where: {OR: ['user1', 'user2']}})
 assertEqual(data.length, 3)
 
-const count = await db.count({ where: {OR: ['user1', 'user2']}})
-assertEqual(count, 3)
+const count = await db.count({ where: {AND: ['user1', 'user2']}})
+assertEqual(count, 0)
 
 // See all your indexes:
 const tags = await db.tags("user1")
@@ -118,6 +120,74 @@ assertEqual(tags.length, 2)
 // Clear just parts of the database:
 const numberDeleted = await db.clear({ where: 'user2' })
 assertEqual(numberDeleted, 1)
+```
+
+### One-to-Many Relationships
+
+Let's say you have User and Post interfaces that look like this:
+```ts
+interface User {
+  id: number
+  name: string
+}
+interface Post {
+  content: string
+  userId: number
+}
+```
+
+Now we want to store this data in Redbase. Rather than store all posts in an array inside of each `User` (which you might do in a NoSQL database), you can simply create separate Redbase clients for the two interfaces:
+
+```ts
+// Slightly more efficient to share the same redis instance:
+const redisInstance = initRedis()
+const users = new Redbase<User>('myProject-user', { redisInstance })
+const posts = new Redbase<Post>('myProject-post', { redisInstance })
+```
+
+When inserting a new Post for a given `userId`, make sure you tag it:
+
+```ts
+await posts.save(uuid(), post, { tags: [`user-${userId}`] })
+```
+
+Now we can query all posts for a given user:
+
+```ts
+const userPosts = await posts.filter({ where: `user-${userId}`, limit: 100 })
+```
+
+Note that tags are simple and don't have contraints; if the user's id changes, you have to re-save each of its posts with the new tag.
+
+### Many-to-Many Relationships
+
+Let's say you have Posts and Categories that look like this:
+
+```ts
+interface Post {
+  id: number
+}
+interface Category {
+  name: string
+}
+```
+
+For many-to-many relationships, e.g. `Post` <-> `Category`, you can make the save atomic inside a Redis transaction by calling `multiSet` instead of `save`:
+
+```ts
+const redisInstance = initRedis()
+const categories = new Redbase<Category>('myProject-category', { redisInstance })
+const posts = new Redbase<Post>('myProject-post', { redisInstance })
+
+const post = { id, ... }
+const categoryNames = ['tech', 'draft', ...]
+
+let multi = redisInstance.multi()
+multi = posts.multiSet(multi, post.postId, post, { tags: categoryNames })
+for (const name of categoryNames) {
+  multi = categories.multiSet(name, { name }, { tags: [`post-${post.id}`] })
+}
+await multi.exec()
 ```
 
 For all functionality, see `test/database.spec.ts`.
@@ -135,18 +205,19 @@ An entry is composed of an `id` and a `value`:
 
 ### Tags
 
-Tags are a lightweight primitive for indexing your values. You attach them at insert-time, and they are schemaless. This makes them simple and flexible for many use cases. It also allows you to index values by external attributes (that aren't a part of the value itself: [example](#example-prompt-cache)).
+Tags are a lightweight primitive for indexing your values. You attach them at insert-time, and they are schemaless. This makes them simple and flexible for many use cases:
 
-Calling `db.filter({ where: { AND: [...]}})` etc. allows you to compose them together as a list.
+- Tags allow you to index values by external attributes (that aren't a part of the value itself: [example](#example-prompt-cache)).
+- Tags allow you to link values between Redbase instances in [one-to-many relationships](#one-to-many-relationships), or even have [many-to-many relationships](#many-to-many-relationships) between data types. You can shard data between multiple Redis instances this way.
+- Tags can be nested with a chosen separator, e.g. `parentindex/childindex`. This effectively allows you to group your indexes, and makes [browsing](#example-browsing-your-data) your data easier and more fun.
+
+Calling `db.filter({ where: { AND: [...]}})` etc. allows you to intersect tags together, and doing the same with `OR` allows you to union them.
+
+Call `db.tags(parentIndex)` to get all the children tags of `parentIndex`.
 
 Tags are sort of self-cleaning: indexes delete themselves during bulk-delete operations, and they shrink when entries are deleted individually. However, when the last entry for an index is deleted, the index is not. This shouldn't cause a significant zombie index issue unless you're creating and wiping out an unbounded number of tags.
 
-Tags can get unruly, you you can keep them organized by nesting them:
-`parentindex/childindex`. This effectively allows you to group your indexes, and makes [browsing](#example-browsing-your-data) your data easier and more fun.
-
-Call `db.tags("parentindex")` to get all the children tags.
-
-As you might expect, when indexing an entry under `parentindex/childindex` the entry is automatically indexed under `parentindex` as well. This makes it easy to build a url-based [cache exploration server](#example-browsing-your-data). Call `db.filter({ where: 'parentindex' })` to get all entries for all children tags.
+Tags can get unruly, so you can keep them organized by nesting them. As you might expect, when indexing an entry under `parentindex/childindex`, the entry is automatically indexed under `parentindex` as well. This makes it easy to build a url-based [cache exploration server](#example-browsing-your-data). Call `db.filter({ where: parentIndex })` to get all entries for all children tags under `parentIndex`.
 
 
 ### Example: Prompt Cache
