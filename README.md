@@ -92,9 +92,9 @@ assertEqual(await db.count(), 1)
 // Hierarchical indexes, using a customizable tag separator (default: '/')
 await Promise.all([
   // Redis auto-pipelines these calls into one fast request!
-  db.set(uuid(), { a: 'hi' }, ['user1/project1']),
-  db.set(uuid(), { a: 'there' }, ['user1/project2']),
-  db.set(uuid(), { a: 'bye' }, ['user2/project1'])
+  db.set(uuid(), { a: 'hi' }, { tags: ['user1/project1'] }),
+  db.set(uuid(), { a: 'there' }, { tags: ['user1/project2'] }),
+  db.set(uuid(), { a: 'bye' }, { tags: ['user2/project1'] })
 ])
 
 data = await db.filter()
