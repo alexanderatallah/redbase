@@ -172,7 +172,7 @@ const tags = [
 ]
 const payload = { ...requestData, user }
 const response = await openai.createCompletion(payload)
-await summaryCache.save(id, {
+await promptCache.save(id, {
   prompt: requestData,
   completion: response.data
 }, { tags })
