@@ -1,10 +1,13 @@
 # Redbase
 
-A simple, fast, indexed, and type-safe database on top of Redis. Can be used as a queryable, browsable cache.
+A simple, fast, indexed, and type-safe database on top of Redis.
+
+Built to answer the question, "how can I have a queryable, browsable db that also works well as a cache?"
 
 ## Goals
 
-- **Simple**: less than 500 lines. Only one dependency, `ioredis`. No modules. You can copy-paste the code instead if you want.
+- **Simple**: less than 500 lines. Only one dependency, `ioredis`. You can copy-paste the code instead if you want.
+- **Serverless-friendly**: no Redis modules, only core Redis.
 - **Fast**: Compared to optimized Postgres, 150% faster at paginating unindexed data. See [all benchmarks](#benchmarks) below.
 - **Indexable**: Supports hierarchical [tags](#tags), a lightweight primitive for indexing your data.
 - **Browsable**: [browser-friendly API](#example-browsing-your-data) included for paginating and browsing by tag.
