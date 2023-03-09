@@ -9,20 +9,24 @@ export type OrderingMode = 'ASC' | 'DESC'
 export abstract class RedisMultiAdapter {
   abstract set(key: string, value: RawValueT): RedisMultiAdapter
   abstract expire(key: string, ttl: number): RedisMultiAdapter
-  abstract sadd(key: string, ...values: RawValueT[]): RedisMultiAdapter
-  abstract zadd(key: string, ...scoreMembers: RawValueT[]): RedisMultiAdapter
+  abstract sadd(key: string, values: RawValueT[]): RedisMultiAdapter
+  abstract zadd(
+    key: string,
+    scores: RawValueT[],
+    members: RawValueT[]
+  ): RedisMultiAdapter
   abstract exec(): Promise<void>
-  abstract del(...keys: string[]): RedisMultiAdapter
-  abstract zrem(key: string, ...values: RawValueT[]): RedisMultiAdapter
+  abstract del(keys: string[]): RedisMultiAdapter
+  abstract zrem(key: string, values: RawValueT[]): RedisMultiAdapter
   abstract zunionstore(
     destination: string,
-    aggregate: AggregationMode | undefined,
-    ...keys: string[]
+    keys: string[],
+    aggregate?: AggregationMode
   ): RedisMultiAdapter
   abstract zinterstore(
     destination: string,
-    aggregate: AggregationMode | undefined,
-    ...keys: string[]
+    keys: string[],
+    aggregate?: AggregationMode
   ): RedisMultiAdapter
 }
 
@@ -40,8 +44,8 @@ export abstract class RedisAdapter {
     key: string,
     min: RawValueT,
     max: RawValueT,
-    order: OrderingMode | undefined
+    order?: OrderingMode
   ): Promise<string[]>
   abstract get(key: string): Promise<string | null>
-  abstract del(...keys: string[]): Promise<number>
+  abstract del(keys: string[]): Promise<number>
 }

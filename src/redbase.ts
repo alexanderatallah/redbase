@@ -254,19 +254,19 @@ export class Redbase<ValueT> {
 
     // TODO Using unlink instead of del here doesn't seem to improve perf much
     let txn = this.redis.multi()
-    txn = txn.del(this._entryKey(id))
+    txn = txn.del([this._entryKey(id)])
 
     for (let tag of tags) {
       // Traverse child hierarchy
       while (tag.parent) {
-        txn = txn.zrem(this._tagKey(tag), id)
+        txn = txn.zrem(this._tagKey(tag), [id])
         tag = tag.parent
       }
       // Root. Note that there might be duplicate zrem calls for shared parents, esp root
-      txn = txn.zrem(this._tagKey(tag), id)
+      txn = txn.zrem(this._tagKey(tag), [id])
     }
 
-    txn = txn.del(tagKey)
+    txn = txn.del([tagKey])
     await txn.exec()
   }
 
@@ -311,19 +311,19 @@ export class Redbase<ValueT> {
     score: number
   ) {
     // Tag this tag under the entry
-    txn = txn.sadd(this._entryTagsKey(entryId), tag.name)
+    txn = txn.sadd(this._entryTagsKey(entryId), [tag.name])
 
     // Traverse child hierarchy
     while (tag.parent) {
       // Tag the entry under this tag
-      txn = txn.zadd(this._tagKey(tag), score, entryId)
+      txn = txn.zadd(this._tagKey(tag), [score], [entryId])
       // Register this tag under its parent
-      txn = txn.zadd(this._tagChildrenKey(tag.parent), 0, tag.name)
+      txn = txn.zadd(this._tagChildrenKey(tag.parent), [0], [tag.name])
       // Move up the hierarchy
       tag = tag.parent
     }
     // We're at the root tag now - add the entry to it as well
-    txn = txn.zadd(this._tagKey(tag), score, entryId)
+    txn = txn.zadd(this._tagKey(tag), [score], [entryId])
     return txn
   }
 
@@ -437,7 +437,7 @@ export class Redbase<ValueT> {
       return txn
     }
     const methodName = type === 'union' ? 'zunionstore' : 'zinterstore'
-    txn = txn[methodName](targetTagKey, 'MIN', ...tagKeys).expire(
+    txn = txn[methodName](targetTagKey, tagKeys, 'MIN').expire(
       targetTagKey,
       this.aggregateTagTTL
     )
@@ -445,11 +445,11 @@ export class Redbase<ValueT> {
   }
 
   _recursiveTagDeletion(multi: RedisMultiAdapter, tag: Tag): RedisMultiAdapter {
-    let ret = multi.del(this._tagKey(tag))
+    let ret = multi.del([this._tagKey(tag)])
     const childtags = this.redis.zrange(this._tagChildrenKey(tag), 0, -1, 'ASC')
     for (const child in childtags) {
       ret = this._recursiveTagDeletion(ret, Tag.fromPath(child))
     }
-    return ret.del(this._tagChildrenKey(tag))
+    return ret.del([this._tagChildrenKey(tag)])
   }
 }

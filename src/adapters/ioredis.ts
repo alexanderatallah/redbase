@@ -29,13 +29,14 @@ export class IORedisMulti extends RedisMultiAdapter {
     return this
   }
 
-  sadd(key: string, ...values: RawValueT[]) {
+  sadd(key: string, values: RawValueT[]) {
     this.multi = this.multi.sadd(key, ...values)
     return this
   }
 
-  zadd(key: string, ...scoreMembers: RawValueT[]) {
-    this.multi = this.multi.zadd(key, ...scoreMembers)
+  zadd(key: string, scores: RawValueT[], members: RawValueT[]) {
+    const zipped = scores.flatMap((s, i) => [s, members[i]])
+    this.multi = this.multi.zadd(key, ...zipped)
     return this
   }
 
@@ -47,20 +48,20 @@ export class IORedisMulti extends RedisMultiAdapter {
     }
   }
 
-  del(...keys: string[]) {
+  del(keys: string[]) {
     this.multi = this.multi.del(...keys)
     return this
   }
 
-  zrem(key: string, ...values: RawValueT[]) {
+  zrem(key: string, values: RawValueT[]) {
     this.multi = this.multi.zrem(key, ...values)
     return this
   }
 
   zunionstore(
     destination: string,
-    aggregate: AggregationMode | undefined,
-    ...keys: string[]
+    keys: string[],
+    aggregate?: AggregationMode
   ): RedisMultiAdapter {
     const aggSettings = aggregate ? ['AGGREGATE', aggregate] : []
     this.multi = this.multi.zunionstore(
@@ -74,8 +75,8 @@ export class IORedisMulti extends RedisMultiAdapter {
 
   zinterstore(
     destination: string,
-    aggregate: AggregationMode | undefined,
-    ...keys: string[]
+    keys: string[],
+    aggregate?: AggregationMode
   ): RedisMultiAdapter {
     const aggSettings = aggregate ? ['AGGREGATE', aggregate] : []
     this.multi = this.multi.zinterstore(
@@ -118,7 +119,7 @@ export class IORedis extends RedisAdapter {
     return this.redis.get(key)
   }
 
-  async del(...keys: string[]) {
+  async del(keys: string[]) {
     return this.redis.del(...keys)
   }
 
@@ -138,7 +139,7 @@ export class IORedis extends RedisAdapter {
     key: string,
     min: RawValueT,
     max: RawValueT,
-    order: OrderingMode | undefined
+    order?: OrderingMode
   ): Promise<string[]> {
     if (order === 'DESC') {
       return this.redis.zrange(key, min, max, 'REV')
