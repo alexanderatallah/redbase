@@ -4,10 +4,12 @@ const DEFAULT_URL = process.env['REDIS_URL'] || 'redis://localhost:6379'
 
 export class IORedisMulti extends RedisMultiAdapter {
   multi: ChainableCommander
+  redis: IORedis
 
-  constructor(redis: Redis) {
+  constructor(ioRedis: IORedis) {
     super()
-    this.multi = redis.multi()
+    this.redis = ioRedis
+    this.multi = ioRedis.redis.multi()
   }
 
   set(key: string, value: string) {
@@ -33,8 +35,8 @@ export class IORedisMulti extends RedisMultiAdapter {
   async exec() {
     const res = await this.multi.exec()
     if (!res || res.map(r => r[0]).filter(e => !!e).length) {
-      // Errors occurred during the exec, so throw
-      throw res
+      // Errors occurred during the exec, so record backend error
+      this.redis.errorHandler(res)
     }
   }
 
@@ -46,20 +48,22 @@ export class IORedisMulti extends RedisMultiAdapter {
 
 export class IORedis extends RedisAdapter {
   redis: Redis
+  errorHandler: (err: unknown) => void
 
-  constructor(url = DEFAULT_URL, errorLogger = defaultLogger) {
+  constructor(url = DEFAULT_URL, errorHandler = defaultLogger) {
     super()
     this.redis = new Redis(url, {
       enableAutoPipelining: true,
     })
 
-    if (errorLogger) {
-      this.redis.on('error', errorLogger)
+    if (errorHandler) {
+      this.errorHandler = errorHandler
+      this.redis.on('error', errorHandler)
     }
   }
 
   multi() {
-    return new IORedisMulti(this.redis)
+    return new IORedisMulti(this)
   }
 
   async quit() {
