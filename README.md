@@ -6,8 +6,8 @@ Built to answer the question, "how can I have a queryable, browsable db that als
 
 ## Goals
 
-- **Simple**: less than 500 lines. Only one dependency, `ioredis`. You can copy-paste the code instead if you want.
-- **Serverless-friendly**: no Redis modules, only core Redis.
+- **Simple**: less than 500 lines, and no dependencies. You can copy-paste the code instead if you want.
+- **Serverless-friendly**: no Redis modules, only core Redis. Multiple Redis clients supported, including REST-based ones.
 - **Fast**: Compared to optimized Postgres, 150% faster at paginating unindexed data. See [all benchmarks](#benchmarks) below.
 - **Indexable**: Supports hierarchical [tags](#tags), a lightweight primitive for indexing your data.
 - **Browsable**: [browser-friendly API](#example-browsing-your-data) included for paginating and browsing by tag.
@@ -37,6 +37,7 @@ Exploration API:
 - [Redbase](#redbase)
   - [Goals](#goals)
   - [Install](#install)
+    - [Redis Client Compatibility](#redis-client-compatibility)
   - [Usage](#usage)
   - [Core concepts](#core-concepts)
     - [Entries](#entries)
@@ -47,6 +48,8 @@ Exploration API:
     - [For the cache use-case](#for-the-cache-use-case)
     - [For the database use-case](#for-the-database-use-case)
     - [Results](#results)
+  - [Contributing](#contributing)
+    - [Writing Adapters](#writing-adapters)
   - [License](#license)
 
 ## Install
@@ -54,6 +57,13 @@ Exploration API:
 ```bash
 npm install redbase
 ```
+
+### Redis Client Compatibility
+
+Redbase can support arbitrary Redis clients through the use of [custom adapters](#writing-adapters). The current clients supported are:
+
+- [ioredis](https://github.com/luin/ioredis)
+- [redis](https://github.com/redis/node-redis)
 
 ## Usage
 
@@ -68,7 +78,7 @@ type MyValue = {
   }
 }
 
-// Options can also use your own ioredis instance if already defined,
+// Options can also use your own Redis instance if already defined,
 // as `redisInstance`
 const db = new Redbase<MyValue>('myProject', { redisUrl: 'redis://...' })
 
@@ -228,6 +238,14 @@ Results on Apple M1 Max, 2021:
 ![Insert and scroll](files/insert_and_scroll.png)
 ![Scroll along an index](files/index_scrolling.png)
 ![Delete data](files/deleting.png)
+
+## Contributing
+
+See open pull requests and issues on [Github](https://github.com/alexanderatallah/redbase).
+
+### Writing Adapters
+
+You can add support for new [Redis clients](#redis-client-compatibility) by writing an adapter. Adapters are located in `src/adapters/`. It's easy to duplicate one and adjust.
 
 ## License
 MIT

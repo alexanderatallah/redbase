@@ -1,2 +1,2 @@
 export { Redbase } from './redbase'
-export { initRedis } from './backend'
+export { IORedis } from './adapters/ioredis'

@@ -1,13 +1,13 @@
-import { initRedis, ExecT } from './backend'
-import { ChainableCommander, Redis } from 'ioredis'
+import { IORedis } from './adapters/ioredis'
+import { RedisAdapter, RedisMultiAdapter } from './adapters/base'
 import { Tag } from './tag'
 
 const GLOBAL_PREFIX = process.env['REDIS_PREFIX'] || ''
 const DEBUG = process.env['DEBUG'] === 'true'
 const AGG_TAG_TTL_BUFFER = 0.1 // seconds
 export interface Options {
-  redisInstance?: Redis // Redis instance to use. Defaults to undefined.
-  redisUrl?: string // Redis URL to use. Defaults to undefined.
+  redisAdapter?: RedisAdapter // Redis adapter to use. Defaults to IORedis.
+  redisUrl?: string // Redis URL to use. Defaults to REDIS_URL in the environment.
   defaultTTL?: number // Default expiration (in seconds) to use for each entry. Defaults to undefined.
   aggregateTagTTL?: number // TTL for computed query tags. Defaults to 10 seconds
   deletionPageSize?: number // Number of entries to delete at a time when calling "clear". Defaults to 2000.
@@ -81,14 +81,14 @@ interface SaveParams<ValueT> {
 
 export class Redbase<ValueT> {
   public deletionPageSize: number
-  public redis: Redis
+  public redis: RedisAdapter
 
   private _name: string
   private _defaultTTL: number | undefined
   private _aggregateTagTTL: number
 
   constructor(name: string, opts: Options = {}) {
-    this.redis = opts.redisInstance || initRedis(opts.redisUrl)
+    this.redis = opts.redisAdapter || new IORedis(opts.redisUrl)
     this._defaultTTL = this._validateTTL(opts.defaultTTL)
     this._aggregateTagTTL = this._validateTTL(opts.aggregateTagTTL) || 10 // seconds
     this.deletionPageSize = opts.deletionPageSize || 2000
@@ -131,7 +131,7 @@ export class Redbase<ValueT> {
     id: string,
     value: ValueT,
     { tags, sortBy, ttl }: SaveParams<ValueT> = {}
-  ): Promise<ExecT> {
+  ): Promise<void> {
     if (!Array.isArray(tags)) {
       tags = [tags || '']
     }
@@ -151,7 +151,7 @@ export class Redbase<ValueT> {
     if (ttl) {
       txn = txn.expire(this._entryKey(id), ttl)
     }
-    return txn.exec()
+    await txn.exec()
   }
 
   async clear({ where = '' }: ClearParams = {}): Promise<number> {
@@ -245,7 +245,7 @@ export class Redbase<ValueT> {
     return this.redis.zcount(this._tagKey(computedTag), scoreMin, scoreMax)
   }
 
-  async delete(id: string): Promise<ExecT> {
+  async delete(id: string): Promise<void> {
     const tagKey = this._entryTagsKey(id)
     if (DEBUG) {
       console.log(
@@ -270,7 +270,7 @@ export class Redbase<ValueT> {
     }
 
     txn = txn.del(tagKey)
-    return txn.exec()
+    await txn.exec()
   }
 
   async ttl(id: string): Promise<number | undefined> {
@@ -278,7 +278,7 @@ export class Redbase<ValueT> {
     return ttl < 0 ? undefined : ttl
   }
 
-  async close(): Promise<string> {
+  async close(): Promise<void> {
     return this.redis.quit()
   }
 
@@ -311,7 +311,7 @@ export class Redbase<ValueT> {
   }
 
   _indexEntry(
-    txn: ChainableCommander,
+    txn: RedisMultiAdapter,
     tag: Tag,
     entryId: string,
     score: number
@@ -437,7 +437,7 @@ export class Redbase<ValueT> {
     targetTagKey: string,
     tagKeys: string[],
     type: 'union' | 'intersection'
-  ): Promise<ChainableCommander> {
+  ): Promise<RedisMultiAdapter> {
     let txn = this.redis.multi()
     if ((await this.redis.ttl(targetTagKey)) > AGG_TAG_TTL_BUFFER) {
       return txn
@@ -453,10 +453,7 @@ export class Redbase<ValueT> {
     return txn
   }
 
-  _recursiveTagDeletion(
-    multi: ChainableCommander,
-    tag: Tag
-  ): ChainableCommander {
+  _recursiveTagDeletion(multi: RedisMultiAdapter, tag: Tag): RedisMultiAdapter {
     let ret = multi.del(this._tagKey(tag))
     const childtags = this.redis.zrange(this._tagChildrenKey(tag), 0, -1)
     for (const child in childtags) {
