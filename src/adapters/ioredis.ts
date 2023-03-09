@@ -1,5 +1,12 @@
 import Redis, { ChainableCommander } from 'ioredis'
-import { RedisAdapter, defaultLogger, RedisMultiAdapter } from './base'
+import {
+  RedisAdapter,
+  defaultLogger,
+  RedisMultiAdapter,
+  RawValueT,
+  AggregationMode,
+  OrderingMode,
+} from './base'
 const DEFAULT_URL = process.env['REDIS_URL'] || 'redis://localhost:6379'
 
 export class IORedisMulti extends RedisMultiAdapter {
@@ -12,7 +19,7 @@ export class IORedisMulti extends RedisMultiAdapter {
     this.multi = ioRedis.redis.multi()
   }
 
-  set(key: string, value: string) {
+  set(key: string, value: RawValueT) {
     this.multi = this.multi.set(key, value)
     return this
   }
@@ -22,13 +29,13 @@ export class IORedisMulti extends RedisMultiAdapter {
     return this
   }
 
-  sadd(key: string, value: string) {
-    this.multi = this.multi.sadd(key, value)
+  sadd(key: string, ...values: RawValueT[]) {
+    this.multi = this.multi.sadd(key, ...values)
     return this
   }
 
-  zadd(key: string, score: number, value: string) {
-    this.multi = this.multi.zadd(key, score, value)
+  zadd(key: string, ...scoreMembers: RawValueT[]) {
+    this.multi = this.multi.zadd(key, ...scoreMembers)
     return this
   }
 
@@ -40,8 +47,43 @@ export class IORedisMulti extends RedisMultiAdapter {
     }
   }
 
-  del(key: string) {
-    this.multi = this.multi.del(key)
+  del(...keys: string[]) {
+    this.multi = this.multi.del(...keys)
+    return this
+  }
+
+  zrem(key: string, ...values: RawValueT[]) {
+    this.multi = this.multi.zrem(key, ...values)
+    return this
+  }
+
+  zunionstore(
+    destination: string,
+    aggregate: AggregationMode | undefined,
+    ...keys: string[]
+  ): RedisMultiAdapter {
+    const aggSettings = aggregate ? ['AGGREGATE', aggregate] : []
+    this.multi = this.multi.zunionstore(
+      destination,
+      keys.length,
+      ...keys,
+      ...aggSettings
+    )
+    return this
+  }
+
+  zinterstore(
+    destination: string,
+    aggregate: AggregationMode | undefined,
+    ...keys: string[]
+  ): RedisMultiAdapter {
+    const aggSettings = aggregate ? ['AGGREGATE', aggregate] : []
+    this.multi = this.multi.zinterstore(
+      destination,
+      keys.length,
+      ...keys,
+      ...aggSettings
+    )
     return this
   }
 }
@@ -56,10 +98,8 @@ export class IORedis extends RedisAdapter {
       enableAutoPipelining: true,
     })
 
-    if (errorHandler) {
-      this.errorHandler = errorHandler
-      this.redis.on('error', errorHandler)
-    }
+    this.errorHandler = errorHandler
+    this.redis.on('error', errorHandler)
   }
 
   multi() {
@@ -74,11 +114,36 @@ export class IORedis extends RedisAdapter {
     return this.redis.ttl(key)
   }
 
-  async del(key: string) {
-    return this.redis.del(key)
+  async get(key: string) {
+    return this.redis.get(key)
+  }
+
+  async del(...keys: string[]) {
+    return this.redis.del(...keys)
   }
 
   async smembers(key: string): Promise<string[]> {
     return this.redis.smembers(key)
+  }
+
+  async zcount(
+    key: string,
+    min: string | number,
+    max: string | number
+  ): Promise<number> {
+    return this.redis.zcount(key, min, max)
+  }
+
+  async zrange(
+    key: string,
+    min: RawValueT,
+    max: RawValueT,
+    order: OrderingMode | undefined
+  ): Promise<string[]> {
+    if (order === 'DESC') {
+      return this.redis.zrange(key, min, max, 'REV')
+    } else {
+      return this.redis.zrange(key, min, max)
+    }
   }
 }

@@ -227,10 +227,7 @@ export class Redbase<ValueT> {
       offset,
       offset + limit - 1, // ZRANGE limits are inclusive
     ]
-    if (ordering === 'desc') {
-      args.push('REV')
-    }
-    return this.redis.zrange(...args)
+    return this.redis.zrange(...args, ordering === 'desc' ? 'DESC' : 'ASC')
   }
 
   async count({
@@ -304,10 +301,7 @@ export class Redbase<ValueT> {
       offset,
       offset + limit - 1, // ZRANGE limits are inclusive
     ]
-    if (ordering === 'desc') {
-      args.push('REV')
-    }
-    return this.redis.zrange(...args)
+    return this.redis.zrange(...args, ordering === 'desc' ? 'DESC' : 'ASC')
   }
 
   _indexEntry(
@@ -443,19 +437,16 @@ export class Redbase<ValueT> {
       return txn
     }
     const methodName = type === 'union' ? 'zunionstore' : 'zinterstore'
-    txn = txn[methodName](
+    txn = txn[methodName](targetTagKey, 'MIN', ...tagKeys).expire(
       targetTagKey,
-      tagKeys.length,
-      ...tagKeys,
-      'AGGREGATE',
-      'MIN'
-    ).expire(targetTagKey, this.aggregateTagTTL)
+      this.aggregateTagTTL
+    )
     return txn
   }
 
   _recursiveTagDeletion(multi: RedisMultiAdapter, tag: Tag): RedisMultiAdapter {
     let ret = multi.del(this._tagKey(tag))
-    const childtags = this.redis.zrange(this._tagChildrenKey(tag), 0, -1)
+    const childtags = this.redis.zrange(this._tagChildrenKey(tag), 0, -1, 'ASC')
     for (const child in childtags) {
       ret = this._recursiveTagDeletion(ret, Tag.fromPath(child))
     }
