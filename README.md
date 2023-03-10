@@ -6,8 +6,8 @@ Built to answer the question, "how can I have a queryable, browsable db that als
 
 ## Goals
 
-- **Simple**: less than 500 lines. Only one dependency, `ioredis`. You can copy-paste the code instead if you want.
-- **Serverless-friendly**: no Redis modules, only core Redis.
+- **Simple**: less than 500 lines, and no dependencies. You can copy-paste the code instead if you want.
+- **Serverless-friendly**: no Redis modules, only core Redis. Multiple Redis clients supported, including REST-based ones.
 - **Fast**: Compared to optimized Postgres, 150% faster at paginating unindexed data. See [all benchmarks](#benchmarks) below.
 - **Indexable**: Supports hierarchical [tags](#tags), a lightweight primitive for indexing your data.
 - **Browsable**: [browser-friendly API](#example-browsing-your-data) included for paginating and browsing by tag.
@@ -37,6 +37,7 @@ Exploration API:
 - [Redbase](#redbase)
   - [Goals](#goals)
   - [Install](#install)
+    - [Redis Client Compatibility](#redis-client-compatibility)
   - [Usage](#usage)
   - [Core concepts](#core-concepts)
     - [Entries](#entries)
@@ -47,6 +48,8 @@ Exploration API:
     - [For the cache use-case](#for-the-cache-use-case)
     - [For the database use-case](#for-the-database-use-case)
     - [Results](#results)
+  - [Contributing](#contributing)
+    - [Writing Adapters](#writing-adapters)
   - [License](#license)
 
 ## Install
@@ -54,6 +57,13 @@ Exploration API:
 ```bash
 npm install redbase
 ```
+
+### Redis Client Compatibility
+
+Redbase can support arbitrary Redis clients through the use of [custom adapters](#writing-adapters). The current clients supported are:
+
+- [ioredis](https://github.com/luin/ioredis)
+- [redis](https://github.com/redis/node-redis)
 
 ## Usage
 
@@ -68,7 +78,7 @@ type MyValue = {
   }
 }
 
-// Options can also use your own ioredis instance if already defined,
+// Options can also use your own Redis instance if already defined,
 // as `redisInstance`
 const db = new Redbase<MyValue>('myProject', { redisUrl: 'redis://...' })
 
@@ -193,7 +203,7 @@ To browse, paginate, filter, and delete your data directly from a browser, just 
 
 **Note:** I'm very new to benchmarking open-sourced code, and would appreciate pull requests here! One issue, for example, is that increasing the number of runs can cause the data to scale up (depending on which benchmarks you're running), which seems to e.g. make Redis win on pagination by a larger margin.
 
-This project uses [hyperfine](https://github.com/sharkdp/hyperfine) to compare Redis in a persistent mode with Postgres in an optimized mode. **Yes, this is comparing apples to oranges.** I decided to do it anyway because:
+These benchmarks use [hyperfine](https://github.com/sharkdp/hyperfine) and compare Redis in a persistent mode with Postgres in an optimized mode. Yes, this is still comparing apples to oranges in a sense, but I decided to do it anyway because:
 
 1. A big question this project answers is "how can I have a queryable, browsable db that also works well as a cache?" Redis and Postgres are two backend choices that pop up frequently.
 
@@ -219,15 +229,23 @@ Comment-out the call to `ALTER DATABASE ... SET synchronous_commit=OFF;` in `/be
 
 ### Results
 - **Inserting data**: Tie
-- **Paginating unindexed data**: Redis is ~150% faster
+- **Paginating unindexed data**: Redbase is ~150% faster
 - **Single-index pagination**: Postgres is ~50% faster
 - **Joint-index pagination**: Postgres is ~60% faster
-- **Inserting and deleting data**: Redis is ~25% faster
+- **Inserting and deleting data**: Redbase is ~25% faster
 
 Results on Apple M1 Max, 2021:
 ![Insert and scroll](files/insert_and_scroll.png)
 ![Scroll along an index](files/index_scrolling.png)
 ![Delete data](files/deleting.png)
+
+## Contributing
+
+See open pull requests and issues on [Github](https://github.com/alexanderatallah/redbase).
+
+### Writing Adapters
+
+You can add support for new [Redis clients](#redis-client-compatibility) by writing an adapter. Adapters are located in `src/adapters/`. It's easy to duplicate one and adjust.
 
 ## License
 MIT
