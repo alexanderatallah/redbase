@@ -3,9 +3,10 @@ import {
   RedisAdapter,
   defaultLogger,
   RedisMultiAdapter,
-  RawValueT,
+  RawValue,
   AggregationMode,
   OrderingMode,
+  Score,
 } from './base'
 const DEFAULT_URL = process.env['REDIS_URL'] || 'redis://localhost:6379'
 
@@ -19,7 +20,7 @@ export class IORedisMulti extends RedisMultiAdapter {
     this.multi = ioRedis.redis.multi()
   }
 
-  set(key: string, value: RawValueT) {
+  set(key: string, value: RawValue) {
     this.multi = this.multi.set(key, value)
     return this
   }
@@ -29,12 +30,12 @@ export class IORedisMulti extends RedisMultiAdapter {
     return this
   }
 
-  sadd(key: string, values: RawValueT[]) {
+  sadd(key: string, values: RawValue[]) {
     this.multi = this.multi.sadd(key, ...values)
     return this
   }
 
-  zadd(key: string, scores: RawValueT[], members: RawValueT[]) {
+  zadd(key: string, scores: Score[], members: RawValue[]) {
     const zipped = scores.flatMap((s, i) => [s, members[i]])
     this.multi = this.multi.zadd(key, ...zipped)
     return this
@@ -53,7 +54,7 @@ export class IORedisMulti extends RedisMultiAdapter {
     return this
   }
 
-  zrem(key: string, values: RawValueT[]) {
+  zrem(key: string, values: RawValue[]) {
     this.multi = this.multi.zrem(key, ...values)
     return this
   }
@@ -129,22 +130,22 @@ export class IORedis extends RedisAdapter {
 
   async zcount(
     key: string,
-    min: string | number,
-    max: string | number
+    min: Score = '-inf',
+    max: Score = '+inf'
   ): Promise<number> {
     return this.redis.zcount(key, min, max)
   }
 
   async zrange(
     key: string,
-    min: RawValueT,
-    max: RawValueT,
+    start: number,
+    stop: number,
     order?: OrderingMode
   ): Promise<string[]> {
     if (order === 'DESC') {
-      return this.redis.zrange(key, min, max, 'REV')
+      return this.redis.zrange(key, start, stop, 'REV')
     } else {
-      return this.redis.zrange(key, min, max)
+      return this.redis.zrange(key, start, stop)
     }
   }
 }

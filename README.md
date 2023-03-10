@@ -203,7 +203,7 @@ To browse, paginate, filter, and delete your data directly from a browser, just 
 
 **Note:** I'm very new to benchmarking open-sourced code, and would appreciate pull requests here! One issue, for example, is that increasing the number of runs can cause the data to scale up (depending on which benchmarks you're running), which seems to e.g. make Redis win on pagination by a larger margin.
 
-This project uses [hyperfine](https://github.com/sharkdp/hyperfine) to compare Redis in a persistent mode with Postgres in an optimized mode. **Yes, this is comparing apples to oranges.** I decided to do it anyway because:
+These benchmarks use [hyperfine](https://github.com/sharkdp/hyperfine) and compare Redis in a persistent mode with Postgres in an optimized mode. Yes, this is still comparing apples to oranges in a sense, but I decided to do it anyway because:
 
 1. A big question this project answers is "how can I have a queryable, browsable db that also works well as a cache?" Redis and Postgres are two backend choices that pop up frequently.
 
@@ -229,10 +229,10 @@ Comment-out the call to `ALTER DATABASE ... SET synchronous_commit=OFF;` in `/be
 
 ### Results
 - **Inserting data**: Tie
-- **Paginating unindexed data**: Redis is ~150% faster
+- **Paginating unindexed data**: Redbase is ~150% faster
 - **Single-index pagination**: Postgres is ~50% faster
 - **Joint-index pagination**: Postgres is ~60% faster
-- **Inserting and deleting data**: Redis is ~25% faster
+- **Inserting and deleting data**: Redbase is ~25% faster
 
 Results on Apple M1 Max, 2021:
 ![Insert and scroll](files/insert_and_scroll.png)

@@ -2,22 +2,23 @@ export const defaultLogger = (err: unknown) => {
   console.error('Redbase backend error', err)
 }
 
-export type RawValueT = string | number | Buffer
-
+export type RawValue = string | number | Buffer
 export type AggregationMode = 'SUM' | 'MIN' | 'MAX'
 export type OrderingMode = 'ASC' | 'DESC'
+export type Score = number | '-inf' | '+inf'
+
 export abstract class RedisMultiAdapter {
-  abstract set(key: string, value: RawValueT): RedisMultiAdapter
+  abstract set(key: string, value: RawValue): RedisMultiAdapter
   abstract expire(key: string, ttl: number): RedisMultiAdapter
-  abstract sadd(key: string, values: RawValueT[]): RedisMultiAdapter
+  abstract sadd(key: string, values: RawValue[]): RedisMultiAdapter
   abstract zadd(
     key: string,
-    scores: RawValueT[],
-    members: RawValueT[]
+    scores: Score[],
+    members: RawValue[]
   ): RedisMultiAdapter
   abstract exec(): Promise<void>
   abstract del(keys: string[]): RedisMultiAdapter
-  abstract zrem(key: string, values: RawValueT[]): RedisMultiAdapter
+  abstract zrem(key: string, values: RawValue[]): RedisMultiAdapter
   abstract zunionstore(
     destination: string,
     keys: string[],
@@ -35,15 +36,11 @@ export abstract class RedisAdapter {
   abstract quit(): Promise<void>
   abstract ttl(key: string): Promise<number>
   abstract smembers(key: string): Promise<string[]>
-  abstract zcount(
-    key: string,
-    min: string | number,
-    max: string | number
-  ): Promise<number>
+  abstract zcount(key: string, min?: Score, max?: Score): Promise<number>
   abstract zrange(
     key: string,
-    min: RawValueT,
-    max: RawValueT,
+    start: number,
+    stop: number,
     order?: OrderingMode
   ): Promise<string[]>
   abstract get(key: string): Promise<string | null>
