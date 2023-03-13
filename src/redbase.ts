@@ -1,13 +1,13 @@
-import { initRedis, ExecT } from './backend'
-import { ChainableCommander, Redis } from 'ioredis'
+import { IORedis } from './adapters/ioredis'
+import { RedisAdapter, RedisMultiAdapter } from './adapters/base'
 import { Tag } from './tag'
 
 const GLOBAL_PREFIX = process.env['REDIS_PREFIX'] || ''
 const DEBUG = process.env['DEBUG'] === 'true'
 const AGG_TAG_TTL_BUFFER = 0.1 // seconds
 export interface Options {
-  redisInstance?: Redis // Redis instance to use. Defaults to undefined.
-  redisUrl?: string // Redis URL to use. Defaults to undefined.
+  redisAdapter?: RedisAdapter // Redis adapter to use. Defaults to IORedis.
+  redisUrl?: string // Redis URL to use. Defaults to REDIS_URL in the environment.
   defaultTTL?: number // Default expiration (in seconds) to use for each entry. Defaults to undefined.
   aggregateTagTTL?: number // TTL for computed query tags. Defaults to 10 seconds
   deletionPageSize?: number // Number of entries to delete at a time when calling "clear". Defaults to 2000.
@@ -81,14 +81,14 @@ interface SaveParams<ValueT> {
 
 export class Redbase<ValueT> {
   public deletionPageSize: number
-  public redis: Redis
+  public redis: RedisAdapter
 
   private _name: string
   private _defaultTTL: number | undefined
   private _aggregateTagTTL: number
 
   constructor(name: string, opts: Options = {}) {
-    this.redis = opts.redisInstance || initRedis(opts.redisUrl)
+    this.redis = opts.redisAdapter || new IORedis(opts.redisUrl)
     this._defaultTTL = this._validateTTL(opts.defaultTTL)
     this._aggregateTagTTL = this._validateTTL(opts.aggregateTagTTL) || 10 // seconds
     this.deletionPageSize = opts.deletionPageSize || 2000
@@ -151,11 +151,11 @@ export class Redbase<ValueT> {
    * Similar to `save` but for setting an entry onto a Redis multi transaction
    */
   multiSet(
-    multi: ChainableCommander,
+    multi: RedisMultiAdapter,
     id: string,
     value: ValueT,
     { tags, sortBy, ttl }: SaveParams<ValueT> = {}
-  ): ChainableCommander {
+  ): RedisMultiAdapter {
     if (!Array.isArray(tags)) {
       tags = [tags || '']
     }
@@ -251,10 +251,7 @@ export class Redbase<ValueT> {
       offset,
       offset + limit - 1, // ZRANGE limits are inclusive
     ]
-    if (ordering === 'desc') {
-      args.push('REV')
-    }
-    return this.redis.zrange(...args)
+    return this.redis.zrange(...args, ordering === 'desc' ? 'DESC' : 'ASC')
   }
 
   async count({
@@ -269,7 +266,7 @@ export class Redbase<ValueT> {
     return this.redis.zcount(this._tagKey(computedTag), scoreMin, scoreMax)
   }
 
-  async delete(id: string): Promise<ExecT> {
+  async delete(id: string): Promise<void> {
     const tagKey = this._entryTagsKey(id)
     if (DEBUG) {
       console.log(
@@ -281,20 +278,20 @@ export class Redbase<ValueT> {
 
     // TODO Using unlink instead of del here doesn't seem to improve perf much
     let txn = this.redis.multi()
-    txn = txn.del(this._entryKey(id))
+    txn = txn.del([this._entryKey(id)])
 
     for (let tag of tags) {
       // Traverse child hierarchy
       while (tag.parent) {
-        txn = txn.zrem(this._tagKey(tag), id)
+        txn = txn.zrem(this._tagKey(tag), [id])
         tag = tag.parent
       }
       // Root. Note that there might be duplicate zrem calls for shared parents, esp root
-      txn = txn.zrem(this._tagKey(tag), id)
+      txn = txn.zrem(this._tagKey(tag), [id])
     }
 
-    txn = txn.del(tagKey)
-    return txn.exec()
+    txn = txn.del([tagKey])
+    await txn.exec()
   }
 
   async ttl(id: string): Promise<number | undefined> {
@@ -302,7 +299,7 @@ export class Redbase<ValueT> {
     return ttl < 0 ? undefined : ttl
   }
 
-  async close(): Promise<string> {
+  async close(): Promise<void> {
     return this.redis.quit()
   }
 
@@ -328,32 +325,29 @@ export class Redbase<ValueT> {
       offset,
       offset + limit - 1, // ZRANGE limits are inclusive
     ]
-    if (ordering === 'desc') {
-      args.push('REV')
-    }
-    return this.redis.zrange(...args)
+    return this.redis.zrange(...args, ordering === 'desc' ? 'DESC' : 'ASC')
   }
 
   _indexEntry(
-    txn: ChainableCommander,
+    txn: RedisMultiAdapter,
     tag: Tag,
     entryId: string,
     score: number
   ) {
     // Tag this tag under the entry
-    txn = txn.sadd(this._entryTagsKey(entryId), tag.name)
+    txn = txn.sadd(this._entryTagsKey(entryId), [tag.name])
 
     // Traverse child hierarchy
     while (tag.parent) {
       // Tag the entry under this tag
-      txn = txn.zadd(this._tagKey(tag), score, entryId)
+      txn = txn.zadd(this._tagKey(tag), [score], [entryId])
       // Register this tag under its parent
-      txn = txn.zadd(this._tagChildrenKey(tag.parent), 0, tag.name)
+      txn = txn.zadd(this._tagChildrenKey(tag.parent), [0], [tag.name])
       // Move up the hierarchy
       tag = tag.parent
     }
     // We're at the root tag now - add the entry to it as well
-    txn = txn.zadd(this._tagKey(tag), score, entryId)
+    txn = txn.zadd(this._tagKey(tag), [score], [entryId])
     return txn
   }
 
@@ -461,31 +455,25 @@ export class Redbase<ValueT> {
     targetTagKey: string,
     tagKeys: string[],
     type: 'union' | 'intersection'
-  ): Promise<ChainableCommander> {
+  ): Promise<RedisMultiAdapter> {
     let txn = this.redis.multi()
     if ((await this.redis.ttl(targetTagKey)) > AGG_TAG_TTL_BUFFER) {
       return txn
     }
     const methodName = type === 'union' ? 'zunionstore' : 'zinterstore'
-    txn = txn[methodName](
+    txn = txn[methodName](targetTagKey, tagKeys, 'MIN').expire(
       targetTagKey,
-      tagKeys.length,
-      ...tagKeys,
-      'AGGREGATE',
-      'MIN'
-    ).expire(targetTagKey, this.aggregateTagTTL)
+      this.aggregateTagTTL
+    )
     return txn
   }
 
-  _recursiveTagDeletion(
-    multi: ChainableCommander,
-    tag: Tag
-  ): ChainableCommander {
-    let ret = multi.del(this._tagKey(tag))
-    const childtags = this.redis.zrange(this._tagChildrenKey(tag), 0, -1)
+  _recursiveTagDeletion(multi: RedisMultiAdapter, tag: Tag): RedisMultiAdapter {
+    let ret = multi.del([this._tagKey(tag)])
+    const childtags = this.redis.zrange(this._tagChildrenKey(tag), 0, -1, 'ASC')
     for (const child in childtags) {
       ret = this._recursiveTagDeletion(ret, Tag.fromPath(child))
     }
-    return ret.del(this._tagChildrenKey(tag))
+    return ret.del([this._tagChildrenKey(tag)])
   }
 }
