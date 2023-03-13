@@ -32,9 +32,7 @@ describe('Redbase', () => {
     })
 
     it('should allow other clients to use the same Redis instance', () => {
-      const otherDb = new Redbase<string>('Test-backup', {
-        redisInstance: db.redis,
-      })
+      const otherDb = new Redbase<string>('Test-backup', { redis: db.redis })
       expect(db.redis).toStrictEqual(otherDb.redis)
     })
   })

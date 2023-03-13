@@ -1,5 +1,6 @@
-export const defaultLogger = (err: unknown) => {
-  console.error('Redbase backend error', err)
+export const defaultErrorHandler = (err: unknown): void | never => {
+  // Screetching halt failure by default
+  throw err
 }
 
 export type RawValue = string | number | Buffer

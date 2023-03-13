@@ -1,7 +1,7 @@
 import Redis, { ChainableCommander } from 'ioredis'
 import {
   RedisAdapter,
-  defaultLogger,
+  defaultErrorHandler,
   RedisMultiAdapter,
   RawValue,
   AggregationMode,
@@ -12,12 +12,12 @@ const DEFAULT_URL = process.env['REDIS_URL'] || 'redis://localhost:6379'
 
 export class IORedisMulti extends RedisMultiAdapter {
   multi: ChainableCommander
-  redis: IORedis
+  errorHandler: (err: unknown) => void
 
-  constructor(ioRedis: IORedis) {
+  constructor(origRedis: Redis, errorHandler = defaultErrorHandler) {
     super()
-    this.redis = ioRedis
-    this.multi = ioRedis.redis.multi()
+    this.multi = origRedis.multi()
+    this.errorHandler = errorHandler
   }
 
   set(key: string, value: RawValue) {
@@ -45,7 +45,7 @@ export class IORedisMulti extends RedisMultiAdapter {
     const res = await this.multi.exec()
     if (!res || res.map(r => r[0]).filter(e => !!e).length) {
       // Errors occurred during the exec, so record backend error
-      this.redis.errorHandler(res)
+      this.errorHandler(res)
     }
   }
 
@@ -91,41 +91,41 @@ export class IORedisMulti extends RedisMultiAdapter {
 }
 
 export class IORedis extends RedisAdapter {
-  redis: Redis
+  origRedis: Redis
   errorHandler: (err: unknown) => void
 
-  constructor(url = DEFAULT_URL, errorHandler = defaultLogger) {
+  constructor(url = DEFAULT_URL, errorHandler = defaultErrorHandler) {
     super()
-    this.redis = new Redis(url, {
+    this.origRedis = new Redis(url, {
       enableAutoPipelining: true,
     })
 
     this.errorHandler = errorHandler
-    this.redis.on('error', errorHandler)
+    this.origRedis.on('error', errorHandler)
   }
 
   multi() {
-    return new IORedisMulti(this)
+    return new IORedisMulti(this.origRedis, this.errorHandler)
   }
 
   async quit() {
-    await this.redis.quit()
+    await this.origRedis.quit()
   }
 
   async ttl(key: string) {
-    return this.redis.ttl(key)
+    return this.origRedis.ttl(key)
   }
 
   async get(key: string) {
-    return this.redis.get(key)
+    return this.origRedis.get(key)
   }
 
   async del(keys: string[]) {
-    return this.redis.del(...keys)
+    return this.origRedis.del(...keys)
   }
 
   async smembers(key: string): Promise<string[]> {
-    return this.redis.smembers(key)
+    return this.origRedis.smembers(key)
   }
 
   async zcount(
@@ -133,7 +133,7 @@ export class IORedis extends RedisAdapter {
     min: Score = '-inf',
     max: Score = '+inf'
   ): Promise<number> {
-    return this.redis.zcount(key, min, max)
+    return this.origRedis.zcount(key, min, max)
   }
 
   async zrange(
@@ -143,9 +143,9 @@ export class IORedis extends RedisAdapter {
     order?: OrderingMode
   ): Promise<string[]> {
     if (order === 'DESC') {
-      return this.redis.zrange(key, start, stop, 'REV')
+      return this.origRedis.zrange(key, start, stop, 'REV')
     } else {
-      return this.redis.zrange(key, start, stop)
+      return this.origRedis.zrange(key, start, stop)
     }
   }
 }

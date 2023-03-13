@@ -6,7 +6,7 @@ const GLOBAL_PREFIX = process.env['REDIS_PREFIX'] || ''
 const DEBUG = process.env['DEBUG'] === 'true'
 const AGG_TAG_TTL_BUFFER = 0.1 // seconds
 export interface Options {
-  redisAdapter?: RedisAdapter // Redis adapter to use. Defaults to IORedis.
+  redis?: RedisAdapter // Redis adapter to use. Defaults to IORedis.
   redisUrl?: string // Redis URL to use. Defaults to REDIS_URL in the environment.
   defaultTTL?: number // Default expiration (in seconds) to use for each entry. Defaults to undefined.
   aggregateTagTTL?: number // TTL for computed query tags. Defaults to 10 seconds
@@ -88,7 +88,7 @@ export class Redbase<ValueT> {
   private _aggregateTagTTL: number
 
   constructor(name: string, opts: Options = {}) {
-    this.redis = opts.redisAdapter || new IORedis(opts.redisUrl)
+    this.redis = opts.redis || new IORedis(opts.redisUrl)
     this._defaultTTL = this._validateTTL(opts.defaultTTL)
     this._aggregateTagTTL = this._validateTTL(opts.aggregateTagTTL) || 10 // seconds
     this.deletionPageSize = opts.deletionPageSize || 2000
@@ -140,11 +140,7 @@ export class Redbase<ValueT> {
   ): Promise<void> {
     let txn = this.redis.multi()
     txn = this.multiSet(txn, id, value, opts)
-    const res = await txn.exec()
-    if (!res || res.map(r => r[0]).filter(e => !!e).length) {
-      // Errors occurred during the save, so throw
-      throw res
-    }
+    await txn.exec()
   }
 
   /**

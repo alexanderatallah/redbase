@@ -81,7 +81,7 @@ type MyValue = {
 }
 
 // Options can also use your own Redis instance if already defined,
-// as `redisInstance`
+// as `redis`
 const db = new Redbase<MyValue>('myProject', { redisUrl: 'redis://...' })
 
 const key = uuid()
@@ -150,9 +150,10 @@ Now we want to store this data in Redbase. Rather than store all posts in an arr
 
 ```ts
 // Slightly more efficient to share the same redis instance:
-const redisInstance = initRedis()
-const users = new Redbase<User>('myProject-user', { redisInstance })
-const posts = new Redbase<Post>('myProject-post', { redisInstance })
+import { IORedis } from 'redbase'
+const redis = new IORedis()
+const users = new Redbase<User>('myProject-user', { redis })
+const posts = new Redbase<Post>('myProject-post', { redis })
 ```
 
 When inserting a new Post for a given `userId`, make sure you tag it:
@@ -185,14 +186,14 @@ interface Category {
 For many-to-many relationships, e.g. `Post` <-> `Category`, you can make the save atomic inside a Redis transaction by calling `multiSet` instead of `save`:
 
 ```ts
-const redisInstance = initRedis()
-const categories = new Redbase<Category>('myProject-category', { redisInstance })
-const posts = new Redbase<Post>('myProject-post', { redisInstance })
+const redis = new IORedis()
+const categories = new Redbase<Category>('myProject-category', { redis })
+const posts = new Redbase<Post>('myProject-post', { redis })
 
 const post = { id, ... }
 const categoryNames = ['tech', 'draft', ...]
 
-let multi = redisInstance.multi()
+let multi = redis.multi()
 multi = posts.multiSet(multi, post.postId, post, { tags: categoryNames })
 for (const name of categoryNames) {
   multi = categories.multiSet(name, { name }, { tags: [`post-${post.id}`] })
