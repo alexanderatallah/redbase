@@ -2,7 +2,7 @@ import { Redbase } from '../src'
 import { v4 as uuidv4 } from 'uuid'
 
 describe('Redbase', () => {
-  type ValueT = { answer: string; optional?: number[] }
+  type ValueT = { answer: string; optional?: number[]; id?: string }
 
   let db: Redbase<string>
   let dbComplex: Redbase<ValueT>
@@ -29,6 +29,13 @@ describe('Redbase', () => {
     it('shoudl not have a name setter', () => {
       // @ts-ignore
       expect(() => (db.name = 'dest')).toThrowError()
+    })
+
+    it('should allow other clients to use the same Redis instance', () => {
+      const otherDb = new Redbase<string>('Test-backup', {
+        redisInstance: db.redis,
+      })
+      expect(db.redis).toStrictEqual(otherDb.redis)
     })
   })
 
@@ -80,6 +87,41 @@ describe('Redbase', () => {
 
       await dbComplex.clear()
       expect(await dbComplex.get(fooId)).toBe(undefined)
+    })
+  })
+
+  describe('Foreign relations between databases', () => {
+    afterAll(async () => {
+      await db.clear()
+      await dbComplex.clear()
+    })
+
+    it('should query one-to-many relationships', async () => {
+      const userTag = 'user-1'
+      const obj = { answer: 'hello' }
+      await Promise.all([
+        db.save(userTag, 'new user'),
+        dbComplex.save(uuidv4(), obj, { tags: [userTag] }),
+      ])
+      const objs = await dbComplex.filter({ where: userTag })
+      expect(objs[0].value).toEqual(obj)
+    })
+
+    it('should atomically save many-to-many relationships', async () => {
+      const categories = ['category1', 'category2']
+      const obj = { answer: 'hello', id: uuidv4() }
+      let multi = db.redis.multi()
+      multi = dbComplex.multiSet(multi, obj.id, obj, { tags: categories })
+      for (const name of categories) {
+        multi = db.multiSet(multi, name, name, { tags: [`obj-${obj.id}`] })
+      }
+      await multi.exec()
+
+      let results = await dbComplex.filter({ where: 'category1' })
+      expect(results[0].value).toEqual(obj)
+
+      results = await dbComplex.filter({ where: 'category2' })
+      expect(results[0].value).toEqual(obj)
     })
   })
 

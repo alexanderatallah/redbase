@@ -127,11 +127,35 @@ export class Redbase<ValueT> {
     return parsed
   }
 
+  /**
+   * Save an entry to the database, setting tags and expiration appropriately
+   * @param id caller-provided id of the entry
+   * @param value object value conforming to the database's type
+   * @param tags tags for this entry
+   */
   async save(
     id: string,
     value: ValueT,
-    { tags, sortBy, ttl }: SaveParams<ValueT> = {}
+    opts: SaveParams<ValueT> = {}
   ): Promise<void> {
+    let txn = this.redis.multi()
+    txn = this.multiSet(txn, id, value, opts)
+    const res = await txn.exec()
+    if (!res || res.map(r => r[0]).filter(e => !!e).length) {
+      // Errors occurred during the save, so throw
+      throw res
+    }
+  }
+
+  /**
+   * Similar to `save` but for setting an entry onto a Redis multi transaction
+   */
+  multiSet(
+    multi: RedisMultiAdapter,
+    id: string,
+    value: ValueT,
+    { tags, sortBy, ttl }: SaveParams<ValueT> = {}
+  ): RedisMultiAdapter {
     if (!Array.isArray(tags)) {
       tags = [tags || '']
     }
@@ -139,7 +163,7 @@ export class Redbase<ValueT> {
     const score = sortBy ? sortBy(value) : new Date().getTime()
     const tagInstances = tags.map(p => Tag.fromPath(p))
 
-    let txn = this.redis.multi().set(this._entryKey(id), JSON.stringify(value))
+    let txn = multi.set(this._entryKey(id), JSON.stringify(value))
 
     for (const tag of tagInstances) {
       txn = this._indexEntry(txn, tag, id, score)
@@ -151,7 +175,7 @@ export class Redbase<ValueT> {
     if (ttl) {
       txn = txn.expire(this._entryKey(id), ttl)
     }
-    await txn.exec()
+    return txn
   }
 
   async clear({ where = '' }: ClearParams = {}): Promise<number> {
