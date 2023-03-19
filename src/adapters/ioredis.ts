@@ -10,12 +10,11 @@ import {
 } from './base'
 const DEFAULT_URL = process.env['REDIS_URL'] || 'redis://localhost:6379'
 
-export class IORedisMulti extends RedisMultiAdapter {
+export class IORedisMulti implements RedisMultiAdapter {
   multi: ChainableCommander
   errorHandler: (err: unknown) => void
 
   constructor(origRedis: Redis, errorHandler = defaultErrorHandler) {
-    super()
     this.multi = origRedis.multi()
     this.errorHandler = errorHandler
   }
@@ -90,12 +89,11 @@ export class IORedisMulti extends RedisMultiAdapter {
   }
 }
 
-export class IORedis extends RedisAdapter {
+export class IORedis implements RedisAdapter {
   origRedis: Redis
   errorHandler: (err: unknown) => void
 
   constructor(url = DEFAULT_URL, errorHandler = defaultErrorHandler) {
-    super()
     this.origRedis = new Redis(url, {
       enableAutoPipelining: true,
     })

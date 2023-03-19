@@ -8,42 +8,38 @@ export type AggregationMode = 'SUM' | 'MIN' | 'MAX'
 export type OrderingMode = 'ASC' | 'DESC'
 export type Score = number | '-inf' | '+inf'
 
-export abstract class RedisMultiAdapter {
-  abstract set(key: string, value: RawValue): RedisMultiAdapter
-  abstract expire(key: string, ttl: number): RedisMultiAdapter
-  abstract sadd(key: string, values: RawValue[]): RedisMultiAdapter
-  abstract zadd(
-    key: string,
-    scores: Score[],
-    members: RawValue[]
-  ): RedisMultiAdapter
-  abstract exec(): Promise<void>
-  abstract del(keys: string[]): RedisMultiAdapter
-  abstract zrem(key: string, values: RawValue[]): RedisMultiAdapter
-  abstract zunionstore(
+export interface RedisMultiAdapter {
+  set(key: string, value: RawValue): RedisMultiAdapter
+  expire(key: string, ttl: number): RedisMultiAdapter
+  sadd(key: string, values: RawValue[]): RedisMultiAdapter
+  zadd(key: string, scores: Score[], members: RawValue[]): RedisMultiAdapter
+  exec(): Promise<void>
+  del(keys: string[]): RedisMultiAdapter
+  zrem(key: string, values: RawValue[]): RedisMultiAdapter
+  zunionstore(
     destination: string,
     keys: string[],
     aggregate?: AggregationMode
   ): RedisMultiAdapter
-  abstract zinterstore(
+  zinterstore(
     destination: string,
     keys: string[],
     aggregate?: AggregationMode
   ): RedisMultiAdapter
 }
 
-export abstract class RedisAdapter {
-  abstract multi(): RedisMultiAdapter
-  abstract quit(): Promise<void>
-  abstract ttl(key: string): Promise<number>
-  abstract smembers(key: string): Promise<string[]>
-  abstract zcount(key: string, min?: Score, max?: Score): Promise<number>
-  abstract zrange(
+export interface RedisAdapter {
+  multi(): RedisMultiAdapter
+  quit(): Promise<void>
+  ttl(key: string): Promise<number>
+  smembers(key: string): Promise<string[]>
+  zcount(key: string, min?: Score, max?: Score): Promise<number>
+  zrange(
     key: string,
     start: number,
     stop: number,
     order?: OrderingMode
   ): Promise<string[]>
-  abstract get(key: string): Promise<string | null>
-  abstract del(keys: string[]): Promise<number>
+  get(key: string): Promise<string | null>
+  del(keys: string[]): Promise<number>
 }
