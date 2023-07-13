@@ -506,5 +506,12 @@ describe('Redbase', () => {
         'math/mod2_1',
       ])
     })
+
+    it('should be able to count even numbers', async () => {
+      const data = await db.count({
+        where: { OR: ['even/true', 'math/mod2_0'] },
+      })
+      expect(data).toEqual(3)
+    })
   })
 })
