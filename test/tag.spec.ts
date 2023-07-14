@@ -40,10 +40,12 @@ describe('Tag', () => {
     expect(tag.parent?.name).toEqual('test')
   })
 
-  it('should be able to create a slash-prepended tag by path', () => {
-    const tag = Tag.fromPath('/test/child')
-    expect(tag.name).toEqual('/test/child')
-    expect(tag.parent?.name).toEqual('/test')
-    expect(tag.parent?.parent).toEqual(Tag.root())
+  it('should correctly handle multi-level nested tags', () => {
+    const multiLevelTag = Tag.fromPath('level1/level2/level3')
+
+    expect(multiLevelTag.name).toEqual('level1/level2/level3')
+    expect(multiLevelTag.parent?.name).toEqual('level1/level2')
+    expect(multiLevelTag.parent?.parent?.name).toEqual('level1')
+    expect(multiLevelTag.parent?.parent?.parent).toEqual(Tag.root())
   })
 })
